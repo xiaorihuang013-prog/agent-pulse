@@ -1,0 +1,455 @@
+:root {
+  --background: #0b0b0d;
+  --surface: #151519;
+  --primary: #f5f5f5;
+  --secondary: #8d8d94;
+  --divider: #2a2a2f;
+  --accent: #e3ff3f;
+  --danger: #ff5c5c;
+  --success: #e3ff3f;
+  --accent-glow: rgba(227, 255, 63, 0.4);
+  --accent-soft: rgba(227, 255, 63, 0.13);
+  --danger-soft: rgba(255, 92, 92, 0.16);
+  --primary-dim: rgba(245, 245, 245, 0.07);
+
+  --dot: 4px;
+  --dot-gap: 3px;
+  --radius: 16px;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* ---------------------------------- widget shell ---------------------------------- */
+
+.widget {
+  position: fixed;
+  inset: 0;
+  padding: 10px; /* transparent margin so the glow can bloom outside the card */
+}
+
+.widget__card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #141419 0%, var(--background) 130%);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow:
+    0 10px 32px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+/* diagonal specular streak — the "machined hardware" flourish */
+.widget__card::before {
+  content: '';
+  position: absolute;
+  top: -40%;
+  left: -40%;
+  width: 180%;
+  height: 180%;
+  background: linear-gradient(115deg, transparent 47%, rgba(255, 255, 255, 0.04) 50%, transparent 53%);
+  pointer-events: none;
+}
+
+/* ---------------------------------- head / number ---------------------------------- */
+
+.widget__head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 18px;
+}
+
+.widget--compact .widget__head {
+  flex: 1;
+}
+
+.widget--expanded .widget__head {
+  padding-top: 18px;
+  padding-bottom: 14px;
+}
+
+.dotmatrix {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1;
+  animation: breathe 4s ease-in-out infinite;
+}
+
+.dm-digit {
+  display: grid;
+  grid-template-rows: repeat(7, var(--dot));
+  gap: var(--dot-gap);
+}
+
+.dm-row {
+  display: grid;
+  grid-template-columns: repeat(5, var(--dot));
+  gap: var(--dot-gap);
+}
+
+.dm-dot {
+  width: var(--dot);
+  height: var(--dot);
+  border-radius: 1px;
+  background: var(--primary-dim);
+}
+
+.dm-dot.is-on {
+  background: var(--accent);
+  box-shadow: 0 0 calc(var(--dot) * 0.9) var(--accent-glow);
+  animation: dotPop 0.18s ease-out both;
+}
+
+.dm-pct {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  opacity: 0.85;
+  margin-left: 1px;
+  letter-spacing: -0.03em;
+}
+
+@keyframes dotPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+/* ---------------------------------- glyph / loader ---------------------------------- */
+
+.glyph {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--secondary);
+}
+
+.glyph--pause,
+.glyph--done {
+  color: var(--accent);
+}
+
+.glyph--cancelled {
+  color: var(--danger);
+}
+
+.dotloader {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dotloader span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
+  animation: dotPulse 1.2s ease-in-out infinite;
+}
+
+.dotloader span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.dotloader span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.dotloader span:nth-child(4) {
+  animation-delay: 0.45s;
+}
+
+@keyframes dotPulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.7);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ---------------------------------- expanded body ---------------------------------- */
+
+.widget__body {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    max-height 0.22s ease,
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.widget--expanded .widget__body {
+  max-height: 190px;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.widget__title {
+  font-size: 11px;
+  color: var(--secondary);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-bottom: 10px;
+}
+
+.widget__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  padding-top: 10px;
+}
+
+.widget__stage {
+  color: var(--primary);
+  letter-spacing: 0.04em;
+}
+
+.widget__eta {
+  color: var(--secondary);
+}
+
+.widget__message {
+  display: flex;
+  align-items: center;
+  min-height: 14px;
+  font-size: 11px;
+  color: var(--secondary);
+  padding-top: 6px;
+}
+
+/* body content needs its own horizontal padding (head has its own) */
+.widget__body {
+  padding: 0 18px 16px;
+}
+
+/* ---------------------------------- hairline bar ---------------------------------- */
+
+.hairline {
+  position: relative;
+  height: 2px;
+  width: 100%;
+  background: var(--divider);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.hairline__fill {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  border-radius: 2px;
+  transform-origin: left center;
+  transform: scaleX(0);
+  box-shadow: 0 0 7px var(--accent-glow);
+}
+
+/* ---------------------------------- completed ---------------------------------- */
+
+.completed,
+.failed {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 18px;
+}
+
+.widget--completed .widget__card {
+  border-color: var(--accent-soft);
+  animation: completeGlow 0.7s ease-out;
+}
+
+.completed__check {
+  font-size: 34px;
+  line-height: 1;
+  color: var(--accent);
+  text-shadow: 0 0 18px var(--accent-glow);
+  animation: checkIn 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.4) 0.15s both;
+}
+
+.completed__label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--primary);
+  animation: fadeUp 0.35s ease 0.5s both;
+}
+
+.completed__pct {
+  font-size: 10px;
+  color: var(--secondary);
+  animation: fadeUp 0.35s ease 0.65s both;
+}
+
+@keyframes completeGlow {
+  0% {
+    box-shadow: 0 0 0 rgba(227, 255, 63, 0);
+  }
+  40% {
+    box-shadow: 0 0 34px var(--accent-glow);
+  }
+  100% {
+    box-shadow: 0 0 14px var(--accent-soft);
+  }
+}
+
+@keyframes checkIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeUp {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ---------------------------------- failed ---------------------------------- */
+
+.widget--failed .widget__card {
+  border-color: var(--danger-soft);
+}
+
+.failed__icon {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--danger);
+  text-shadow: 0 0 14px var(--danger-soft);
+}
+
+.failed__label {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--danger);
+}
+
+.failed__error {
+  font-size: 11px;
+  color: var(--secondary);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 260px;
+}
+
+/* ---------------------------------- main window ---------------------------------- */
+
+.mainview {
+  width: 100%;
+  height: 100%;
+  background: var(--background);
+  color: var(--primary);
+  font-family: var(--font-mono);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.mainview h1 {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.m-title {
+  color: var(--secondary);
+  font-size: 13px;
+}
+
+.m-pct {
+  font-size: 40px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+
+.m-state {
+  font-size: 12px;
+  color: var(--secondary);
+}
+
+.mainview button {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--divider);
+  color: var(--primary);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.mainview button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
