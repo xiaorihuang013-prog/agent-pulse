@@ -2,19 +2,21 @@ import { app, screen } from 'electron'
 import type { Rectangle } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { DEFAULT_THEME } from '../shared/theme'
-import type { ThemeId } from '../shared/types'
+import { DEFAULT_APPEARANCE, DEFAULT_THEME } from '../shared/theme'
+import type { Appearance, ThemeId } from '../shared/types'
 
 interface SettingsShape {
   widgetBounds: Rectangle | null
   soundEnabled: boolean
   theme: ThemeId
+  appearance: Appearance
 }
 
 const defaults: SettingsShape = {
   widgetBounds: null,
   soundEnabled: true,
-  theme: DEFAULT_THEME
+  theme: DEFAULT_THEME,
+  appearance: DEFAULT_APPEARANCE
 }
 
 let cached: SettingsShape = { ...defaults }
@@ -64,6 +66,15 @@ export function setSoundEnabled(v: boolean): void {
 
 export function setWidgetBounds(bounds: Rectangle): void {
   cached.widgetBounds = bounds
+  persist()
+}
+
+export function getAppearance(): Appearance {
+  return cached.appearance
+}
+
+export function setAppearance(v: Appearance): void {
+  cached.appearance = v
   persist()
 }
 

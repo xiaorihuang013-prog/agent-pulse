@@ -1,7 +1,9 @@
 import { app, Menu, Tray } from 'electron'
 import type { MockAgent } from './mockAgent'
-import { getSettings, setSoundEnabled } from './settings'
-import { getWidget, showMainWindow, toggleWidgetVisibility } from './windows'
+import type { Appearance } from '../shared/types'
+import { getAppearance, getSettings, setAppearance, setSoundEnabled } from './settings'
+import { broadcastSettings } from './ipc'
+import { showMainWindow, toggleWidgetVisibility } from './windows'
 
 import { createTrayIcon } from './trayIcon'
 
@@ -12,6 +14,21 @@ export function createTray(agent: MockAgent): void {
   tray = new Tray(icon)
   tray.setToolTip('Agent Pulse')
   rebuildMenu(agent)
+}
+
+function appearanceItems(agent: MockAgent): Electron.MenuItemConstructorOptions[] {
+  const current = getAppearance()
+  const make = (label: string, value: Appearance): Electron.MenuItemConstructorOptions => ({
+    label,
+    type: 'radio',
+    checked: current === value,
+    click: () => {
+      setAppearance(value)
+      broadcastSettings()
+      rebuildMenu(agent)
+    }
+  })
+  return [make('Auto (invert system)', 'auto'), make('Dark', 'dark'), make('Light', 'light')]
 }
 
 function rebuildMenu(agent: MockAgent): void {
@@ -28,16 +45,14 @@ function rebuildMenu(agent: MockAgent): void {
     { label: 'Cancel', click: () => agent.cancel() },
     { label: 'Simulate Failure', click: () => agent.fail() },
     { type: 'separator' },
+    { label: 'Appearance', submenu: appearanceItems(agent) },
     {
       label: 'Sound',
       type: 'checkbox',
       checked: sound,
       click: (item) => {
         setSoundEnabled(item.checked)
-        getWidget()?.webContents.send('settings:changed', {
-          soundEnabled: item.checked,
-          theme: getSettings().theme
-        })
+        broadcastSettings()
       }
     },
     { type: 'separator' },

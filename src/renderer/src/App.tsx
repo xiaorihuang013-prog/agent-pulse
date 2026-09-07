@@ -1,22 +1,24 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_THEME, getTheme } from '@shared/theme'
-import type { ProgressEvent } from '@shared/types'
+import type { Appearance, ProgressEvent } from '@shared/types'
 import { MainView } from './components/MainView'
 import { Widget } from './components/Widget'
-import { applyTheme } from './lib/theme'
+import { useTheme } from './hooks/useTheme'
 
 export default function App() {
   const isMain = window.location.hash === '#main'
+  const { appearance, setAppearance } = useTheme()
 
-  useEffect(() => {
-    applyTheme(getTheme(DEFAULT_THEME))
-  }, [])
-
-  if (isMain) return <MainView />
-  return <WidgetRoot />
+  if (isMain) return <MainView appearance={appearance} setAppearance={setAppearance} />
+  return <WidgetRoot appearance={appearance} setAppearance={setAppearance} />
 }
 
-function WidgetRoot() {
+function WidgetRoot({
+  appearance,
+  setAppearance
+}: {
+  appearance: Appearance
+  setAppearance: (a: Appearance) => void
+}) {
   const [event, setEvent] = useState<ProgressEvent | null>(null)
   const [soundEnabled, setSoundEnabled] = useState(true)
 
@@ -30,5 +32,5 @@ function WidgetRoot() {
     }
   }, [])
 
-  return <Widget event={event} soundEnabled={soundEnabled} />
+  return <Widget event={event} soundEnabled={soundEnabled} appearance={appearance} setAppearance={setAppearance} />
 }

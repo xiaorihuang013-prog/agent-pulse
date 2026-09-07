@@ -9,7 +9,7 @@ app.whenReady().then(async()=>{
   try {
     const win=new BrowserWindow({width:84,height:84,show:false,frame:false,transparent:true,webPreferences:{preload:path.join(root,'out/preload/index.js'),autoplayPolicy:'no-user-gesture-required'}})
     ipcMain.handle('agent:get-progress',()=>null)
-    ipcMain.handle('settings:get',()=>({soundEnabled:false,theme:'monochrome-lime'}))
+    ipcMain.handle('settings:get',()=>({soundEnabled:false,theme:'monochrome-lime',appearance:'dark'}))
     ipcMain.on('widget:mode',(_,mode)=>win.setSize(sizes[mode],sizes[mode]))
     await win.loadFile(path.join(root,'out/renderer/index.html'))
     await pause(100)

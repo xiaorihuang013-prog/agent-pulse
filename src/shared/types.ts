@@ -32,9 +32,13 @@ export interface ProgressEvent {
   etaSeconds: number | null
   message: string
   error?: string
+  /** Task start timestamp (epoch ms) used to derive elapsed time. */
+  startedAt?: number
 }
 
-export type ThemeId = 'monochrome-lime' | 'purple' | 'blue' | 'amber' | 'custom'
+export type ThemeId = 'monochrome-lime' | 'monochrome-lime-light' | 'purple' | 'blue' | 'amber' | 'custom'
+
+export type Appearance = 'dark' | 'light' | 'auto'
 
 export interface ThemeTokens {
   id: ThemeId
@@ -47,9 +51,14 @@ export interface ThemeTokens {
   accent: string
   danger: string
   success: string
+  /** The card's own fill (pure black in dark mode, white in light mode). */
+  cardBackground: string
+  /** Solid attention/approval accent (amber). */
+  approval: string
 }
 
 export interface SettingsSnapshot {
   soundEnabled: boolean
   theme: ThemeId
+  appearance: Appearance
 }

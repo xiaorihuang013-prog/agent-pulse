@@ -12,8 +12,15 @@
   --danger-soft: rgba(255, 92, 92, 0.16);
   --primary-dim: rgba(245, 245, 245, 0.07);
 
-  --dot: 2px;
-  --dot-gap: 1.5px;
+  --card-bg: #000;
+  --card-border: rgba(255, 255, 255, 0.15);
+  --glass-inset: rgba(255, 255, 255, 0.2);
+  --glass-glow: rgba(255, 255, 255, 0.08);
+  --glass-vignette: rgba(235, 241, 249, 0.06);
+  --approval: #f5bf67;
+  --approval-border: rgba(245, 191, 103, 0.55);
+  --approval-glow: rgba(245, 191, 103, 0.2);
+
   --radius: 16px;
   --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -52,25 +59,25 @@ body,
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #000;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.2),
-    inset 0 0 10px rgba(255, 255, 255, 0.08);
+    inset 0 1px 2px var(--glass-inset),
+    inset 0 0 10px var(--glass-glow);
 }
 
-/* The frosted light lives inside the square; its center stays pure black. */
+/* The frosted light lives inside the square; its center stays pure. */
 .widget__card::before {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   box-shadow:
-    inset 0 1px 3px rgba(255, 255, 255, 0.22),
-    inset 0 0 9px rgba(255, 255, 255, 0.1);
-  background: radial-gradient(ellipse at center, transparent 60%, rgba(235, 241, 249, 0.06) 100%);
+    inset 0 1px 3px var(--glass-inset),
+    inset 0 0 9px var(--glass-glow);
+  background: radial-gradient(ellipse at center, transparent 60%, var(--glass-vignette) 100%);
   pointer-events: none;
 }
 
@@ -104,48 +111,16 @@ body,
   padding-bottom: 14px;
 }
 
-.dotmatrix {
-  display: inline-flex;
-  align-items: center;
-  gap: 3.5px;
+.widget__time {
+  font-family: var(--font-mono);
+  font-size: 21px;
+  font-weight: 600;
   line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--accent-glow);
+  font-variant-numeric: tabular-nums;
   animation: breathe 4s ease-in-out infinite;
-}
-
-.dm-digit {
-  display: grid;
-  grid-template-rows: repeat(7, var(--dot));
-  gap: var(--dot-gap);
-}
-
-.dm-row {
-  display: grid;
-  grid-template-columns: repeat(5, var(--dot));
-  gap: var(--dot-gap);
-}
-
-.dm-dot {
-  width: var(--dot);
-  height: var(--dot);
-  border-radius: 1px;
-  background: var(--primary-dim);
-}
-
-.dm-dot.is-on {
-  background: var(--accent);
-  box-shadow: 0 0 calc(var(--dot) * 0.9) var(--accent-glow);
-  animation: dotPop 0.18s ease-out both;
-}
-
-@keyframes dotPop {
-  0% {
-    opacity: 0;
-    transform: scale(0.4);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
 }
 
 @keyframes breathe {
@@ -156,6 +131,33 @@ body,
   50% {
     opacity: 0.85;
   }
+}
+
+/* Appearance cycle button (expanded card only) */
+.widget__theme {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--secondary);
+  background: transparent;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.widget__theme:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* ---------------------------------- glyph / loader ---------------------------------- */
@@ -334,7 +336,7 @@ body,
 
 @keyframes completeGlow {
   0% {
-    box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 0 10px var(--glass-glow);
   }
   40% {
     box-shadow: inset 0 0 24px var(--accent-glow);
@@ -478,9 +480,39 @@ body,
   text-underline-offset: 4px;
 }
 
+.m-appearance {
+  display: flex;
+  gap: 6px;
+}
+
+.m-appearance__btn {
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  border: 1px solid var(--divider);
+  color: var(--secondary);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.m-appearance__btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* Attention stays inside the existing square card. */
 .widget--approval .widget__card {
-  border-color: rgba(245, 191, 103, 0.55);
+  border-color: var(--approval-border);
   animation: approvalGlow 2s ease-in-out infinite;
 }
 .approval {
@@ -498,7 +530,7 @@ body,
   height: 32px;
   border: 1.5px solid currentColor;
   border-radius: 50%;
-  color: #f5bf67;
+  color: var(--approval);
   font-size: 24px;
   line-height: 29px;
   animation: approvalPulse 2s ease-in-out infinite;
@@ -507,11 +539,11 @@ body,
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #f5bf67;
+  color: var(--approval);
 }
 .approval__hint { font-size: 10px; line-height: 1.4; color: var(--secondary); }
 @keyframes approvalPulse { 50% { transform: scale(1.09); opacity: 0.65; } }
-@keyframes approvalGlow { 50% { box-shadow: inset 0 0 14px rgba(245,191,103,0.2); } }
+@keyframes approvalGlow { 50% { box-shadow: inset 0 0 14px var(--approval-glow); } }
 .widget--failed .widget__card { animation: failureGlow 650ms ease-out; }
 .failed__icon { font-size: 38px; animation: failureShake 450ms ease-out; }
 .failed__error { font-size: 10px; max-height: 44px; }

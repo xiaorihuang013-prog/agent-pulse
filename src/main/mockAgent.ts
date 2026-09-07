@@ -191,7 +191,8 @@ export class MockAgent {
       stageIndex: this.stageIndex,
       etaSeconds: this.currentEta(),
       message: this.messageFor(),
-      error: this.error
+      error: this.error,
+      startedAt: this.runStart
     }
     this.listener(e)
   }

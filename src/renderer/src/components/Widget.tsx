@@ -1,18 +1,29 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import type { ProgressEvent, TaskState } from '@shared/types'
+import type { Appearance, ProgressEvent, TaskState } from '@shared/types'
 import type { WidgetMode } from '@shared/layout'
-import { useAnimatedInteger } from '../hooks/useAnimatedInteger'
 import { useDrag } from '../hooks/useDrag'
 import { playAlertSound } from '../lib/sound'
-import { DotMatrix } from './DotMatrix'
 import { HairlineProgress } from './HairlineProgress'
 
-export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; soundEnabled: boolean }) {
+const APPEARANCE_ORDER: Appearance[] = ['auto', 'dark', 'light']
+
+export function Widget({
+  event,
+  soundEnabled,
+  appearance,
+  setAppearance
+}: {
+  event: ProgressEvent | null
+  soundEnabled: boolean
+  appearance: Appearance
+  setAppearance: (a: Appearance) => void
+}) {
   const state: TaskState = event?.state ?? 'queued'
-  const pct = useAnimatedInteger(event?.progress ?? 0)
+  const startedAt = event?.startedAt
 
   const [hovered, setHovered] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
 
   const heardAlerts = useRef(new Set<string>())
   const soundRef = useRef(soundEnabled)
@@ -32,6 +43,16 @@ export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; s
       playAlertSound(state, soundRef.current)
     }
   }, [state, event?.taskId, event?.noticeId])
+
+  // Tick elapsed time once per second while the task is actively progressing.
+  useEffect(() => {
+    if (startedAt == null) return
+    setNow(Date.now())
+    const active = state === 'running' || state === 'waiting' || state === 'paused'
+    if (!active) return
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [startedAt, state])
 
   const mode: WidgetMode =
     state === 'approval' ? 'approval' : state === 'failed' ? 'failed' : state === 'completed' ? 'completed' : hovered ? 'expanded' : 'compact'
@@ -67,6 +88,13 @@ export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; s
 
   const drag = useDrag(() => window.agentPulse.openMain())
 
+  const cycleAppearance = (): void => {
+    const i = APPEARANCE_ORDER.indexOf(appearance)
+    setAppearance(APPEARANCE_ORDER[(i + 1) % APPEARANCE_ORDER.length])
+  }
+
+  const elapsed = startedAt != null ? formatElapsed(now - startedAt) : '--:--'
+
   return (
     <div
       className={`widget widget--${mode}`}
@@ -84,7 +112,7 @@ export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; s
         ) : (
           <>
             <div className="widget__head">
-              <DotMatrix value={`${pct}%`} />
+              <span className="widget__time">{elapsed}</span>
               <StatusGlyph state={state} />
             </div>
             <div className="widget__body">
@@ -95,10 +123,24 @@ export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; s
                 <span className="widget__eta">{formatEta(event)}</span>
               </div>
               <div className="widget__message">
-                {isThinking(event) ? <DotLoader /> : <span>{event?.message ?? ''}</span>}
+                <span>{event?.message ?? ''}</span>
               </div>
             </div>
           </>
+        )}
+        {mode === 'expanded' && (
+          <button
+            type="button"
+            className="widget__theme"
+            aria-label={`Appearance: ${appearance}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              cycleAppearance()
+            }}
+          >
+            {appearanceGlyph(appearance)}
+          </button>
         )}
       </div>
     </div>
@@ -154,9 +196,18 @@ function FailedView({ error }: { error: string }) {
   )
 }
 
-function isThinking(event: ProgressEvent | null): boolean {
-  if (!event) return false
-  return event.state === 'waiting' || event.message.startsWith('Thinking')
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const mm = String(m).padStart(2, '0')
+  const ss = String(s).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+function appearanceGlyph(a: Appearance): string {
+  return a === 'auto' ? '◐' : a === 'dark' ? '●' : '○'
 }
 
 function formatEta(event: ProgressEvent | null): string {

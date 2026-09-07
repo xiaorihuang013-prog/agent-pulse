@@ -28,4 +28,14 @@ export function applyTheme(t: ThemeTokens): void {
   set('--accent-soft', rgba(t.accent, 0.13))
   set('--danger-soft', rgba(t.danger, 0.16))
   set('--primary-dim', rgba(t.primaryText, 0.07))
+
+  // Card + glass + approval, derived so light mode inverts cleanly.
+  set('--card-bg', t.cardBackground)
+  set('--card-border', rgba(t.primaryText, 0.15))
+  set('--glass-inset', rgba(t.primaryText, 0.2))
+  set('--glass-glow', rgba(t.primaryText, 0.08))
+  set('--glass-vignette', rgba(t.primaryText, 0.05))
+  set('--approval', t.approval)
+  set('--approval-border', rgba(t.approval, 0.55))
+  set('--approval-glow', rgba(t.approval, 0.2))
 }

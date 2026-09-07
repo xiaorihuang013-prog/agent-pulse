@@ -1,15 +1,33 @@
 import { ipcMain } from 'electron'
 import type { MockAgent } from './mockAgent'
 import type { WidgetMode } from '../shared/layout'
-import { getSettings, isSoundEnabled, setSoundEnabled } from './settings'
+import type { Appearance } from '../shared/types'
+import {
+  getAppearance,
+  getSettings,
+  isSoundEnabled,
+  setAppearance,
+  setSoundEnabled
+} from './settings'
 import {
   commitWidgetPosition,
+  getMainWindow,
   getWidget,
   hideMainWindow,
   moveWidgetBy,
   setWidgetMode,
   showMainWindow
 } from './windows'
+
+export function broadcastSettings(): void {
+  const snapshot = {
+    soundEnabled: isSoundEnabled(),
+    theme: getSettings().theme,
+    appearance: getAppearance()
+  }
+  getWidget()?.webContents.send('settings:changed', snapshot)
+  getMainWindow()?.webContents.send('settings:changed', snapshot)
+}
 
 export function registerIpc(agent: MockAgent): void {
   ipcMain.on('widget:mode', (_e, mode: WidgetMode) => setWidgetMode(mode))
@@ -20,15 +38,18 @@ export function registerIpc(agent: MockAgent): void {
 
   ipcMain.handle('settings:get', () => ({
     soundEnabled: isSoundEnabled(),
-    theme: getSettings().theme
+    theme: getSettings().theme,
+    appearance: getAppearance()
   }))
 
   ipcMain.on('settings:set-sound', (_e, v: boolean) => {
     setSoundEnabled(v)
-    getWidget()?.webContents.send('settings:changed', {
-      soundEnabled: v,
-      theme: getSettings().theme
-    })
+    broadcastSettings()
+  })
+
+  ipcMain.on('settings:set-appearance', (_e, v: Appearance) => {
+    setAppearance(v)
+    broadcastSettings()
   })
 
   // Optional renderer-side control; the tray drives the agent primarily.

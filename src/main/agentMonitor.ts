@@ -143,7 +143,8 @@ export class TaskTracker {
       state: task.state, progress: task.progress, stage: stages[task.stage], stageIndex: task.stage,
       etaSeconds: null, estimated: true,
       message: task.state === 'approval' ? 'Return to Agent to approve' : task.state === 'completed' ? 'Complete' : task.state === 'waiting' ? '等待 Agent 事件' : '预估进度 · 以真实完成事件为准',
-      error: task.state === 'failed' ? 'Agent 返回错误，请查看原任务' : undefined
+      error: task.state === 'failed' ? 'Agent 返回错误，请查看原任务' : undefined,
+      startedAt: task.start
     }
   }
 }

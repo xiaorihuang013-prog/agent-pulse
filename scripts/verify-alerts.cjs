@@ -5,7 +5,7 @@ app.whenReady().then(async()=>{
  try {
   const win=new BrowserWindow({width:84,height:84,frame:false,transparent:true,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'out/preload/index.js')}})
   ipcMain.handle('agent:get-progress',()=>null)
-  ipcMain.handle('settings:get',()=>({soundEnabled:true,theme:'monochrome-lime'}))
+  ipcMain.handle('settings:get',()=>({soundEnabled:true,theme:'monochrome-lime',appearance:'dark'}))
   ipcMain.on('widget:mode',(_,m)=>{const n={compact:84,expanded:200,approval:140,failed:140,completed:104}[m];win.setSize(n,n)})
   await win.loadFile(path.join(root,'out/renderer/index.html'));await pause(100)
   await win.webContents.executeJavaScript(`window.notes=[];window.AudioContext=class {
@@ -25,7 +25,7 @@ app.whenReady().then(async()=>{
   assert.deepEqual(await win.webContents.executeJavaScript('window.notes.slice(3)'),[392,293.66,196])
   await send('failed');assert.equal(await win.webContents.executeJavaScript('window.notes.length'),6)
   await pause(600);fs.writeFileSync('/tmp/agent-pulse-failed.png',(await win.capturePage()).toPNG())
-  win.webContents.send('settings:changed',{soundEnabled:false,theme:'monochrome-lime'});await pause(100)
+  win.webContents.send('settings:changed',{soundEnabled:false,theme:'monochrome-lime',appearance:'dark'});await pause(100)
   await send('running');await send('approval');assert.equal(await win.webContents.executeJavaScript('window.notes.length'),6)
   console.log('PASS: distinct approval/failure tones, no repeated sound on duplicate snapshots, mute honored, both square alert views rendered.')
   app.exit(0)

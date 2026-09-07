@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ProgressEvent, SettingsSnapshot } from '../shared/types'
+import type { Appearance, ProgressEvent, SettingsSnapshot } from '../shared/types'
 import type { WidgetMode } from '../shared/layout'
 import type { AgentPulseApi } from '../shared/api'
 
@@ -27,6 +27,9 @@ const api: AgentPulseApi = {
   },
   getSettings() {
     return ipcRenderer.invoke('settings:get')
+  },
+  setAppearance(appearance: Appearance) {
+    ipcRenderer.send('settings:set-appearance', appearance)
   },
   setMode(mode: WidgetMode) {
     ipcRenderer.send('widget:mode', mode)
