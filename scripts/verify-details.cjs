@@ -6,9 +6,9 @@ const root=path.resolve(__dirname,'..')
 const pause=ms=>new Promise(r=>setTimeout(r,ms))
 app.whenReady().then(async()=>{
  try {
-  const event={taskId:'details-test',title:'Codex',taskTitle:'Generate Market Report',state:'completed',progress:1,stage:'执行任务',stageIndex:2,etaSeconds:null,message:'Complete'}
+  const event={taskId:'details-test',title:'Generate Market Report',source:'Codex',state:'completed',progress:1,stage:'执行任务',stageIndex:2,etaSeconds:null,message:'Complete'}
   ipcMain.handle('agent:get-progress',()=>event)
-  ipcMain.handle('settings:get',()=>({soundEnabled:false,theme:'monochrome-lime',appearance:'dark'}))
+  ipcMain.handle('settings:get',()=>({soundEnabled:false,theme:'monochrome-lime',appearance:'dark',notifyEnabled:false,language:'en'}))
   let clicks=0;ipcMain.on('main:hide-to-widget',()=>clicks++)
   const win=new BrowserWindow({width:460,height:320,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'out/preload/index.js')}})
   await win.loadFile(path.join(root,'out/renderer/index.html'),{hash:'main'})
@@ -16,7 +16,7 @@ app.whenReady().then(async()=>{
   const read=()=>win.webContents.executeJavaScript(`(()=>{const b=document.querySelector('.m-hide'),s=getComputedStyle(b),r=b.getBoundingClientRect();return {border:s.borderColor,outline:s.outlineStyle,shadow:s.boxShadow,x:r.x+r.width/2,y:r.y+r.height/2,state:document.querySelector('.m-state').textContent,center:getComputedStyle(document.querySelector('.mainview')).textAlign}})()`)
   await win.webContents.executeJavaScript('document.activeElement.blur()')
   win.webContents.sendInputEvent({type:'mouseMove',x:5,y:5});await pause(500)
-  let r=await read();assert.equal(r.state,'completed · Generate Market Report');assert.equal(r.center,'center')
+  let r=await read();assert.equal(r.state,'completed · Codex');assert.equal(r.center,'center')
   const gray=r.border
   for(let i=0;i<3;i++) {
     win.webContents.sendInputEvent({type:'mouseMove',x:Math.round(r.x),y:Math.round(r.y)})

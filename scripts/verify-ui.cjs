@@ -9,13 +9,17 @@ app.whenReady().then(async()=>{
   try {
     const win=new BrowserWindow({width:84,height:84,show:false,frame:false,transparent:true,webPreferences:{preload:path.join(root,'out/preload/index.js'),autoplayPolicy:'no-user-gesture-required'}})
     ipcMain.handle('agent:get-progress',()=>null)
-    ipcMain.handle('settings:get',()=>({soundEnabled:false,theme:'monochrome-lime',appearance:'dark'}))
+    ipcMain.handle('settings:get',()=>({soundEnabled:false,theme:'monochrome-lime',appearance:'dark',notifyEnabled:false,language:'en'}))
     ipcMain.on('widget:mode',(_,mode)=>win.setSize(sizes[mode],sizes[mode]))
     await win.loadFile(path.join(root,'out/renderer/index.html'))
     await pause(100)
-    const event={taskId:'verification',title:'Codex',state:'running',progress:.42,stage:'执行任务',stageIndex:2,etaSeconds:null,estimated:true,message:'预估进度 · 以真实完成事件为准'}
+    const event={taskId:'verification',title:'Generate Market Report',source:'Codex',state:'running',progress:.42,stage:'执行任务',stageIndex:2,etaSeconds:null,estimated:true,message:'预估进度 · 以真实完成事件为准'}
     win.webContents.send('agent:progress',event)
     await pause(500)
+    // A fresh task auto-expands the widget for ~3s, then collapses.
+    const autoW = await win.webContents.executeJavaScript(`document.querySelector('.widget__card').getBoundingClientRect().width`)
+    assert.equal(autoW, sizes.expanded)
+    await pause(3500)
     for(const state of ['compact','expanded','completed']) {
       if(state==='expanded') await win.webContents.executeJavaScript(`document.querySelector('.widget').dispatchEvent(new MouseEvent('mouseover',{bubbles:true}))`)
       if(state==='completed') win.webContents.send('agent:progress',{...event,state:'completed',progress:1})

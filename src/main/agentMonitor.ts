@@ -3,20 +3,38 @@ import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { taskTitleFromPrompt, promptText } from './taskTitle'
 import type { ProgressEvent } from '../shared/types'
+import { t } from '../shared/i18n'
+import type { I18nKey, Lang } from '../shared/i18n'
+import { getLanguage } from './settings'
 
 type Source = 'Codex' | 'Claude Code'
-type Signal = { kind: 'start' | 'activity' | 'complete' | 'cancel' | 'fail' | 'title' | 'approval' | 'resume'; requestId?: string; stage?: number; id?: string; title?: string }
+type Signal = { kind: 'start' | 'activity' | 'complete' | 'cancel' | 'fail' | 'title' | 'approval' | 'resume'; requestId?: string; stage?: number; id?: string; title?: string; terminalApp?: string }
 type RecordData = Record<string, any>
-const stages = ['理解任务', '收集信息', '执行任务', '检查结果']
+const STAGE_KEYS: I18nKey[] = ['stage0', 'stage1', 'stage2', 'stage3']
+const ACT_KEYS: I18nKey[] = ['act0', 'act1', 'act2', 'act3']
 // Estimated stage floors: understanding 10%, gathering 20%, execution 50%, review 15%.
 // The final 5% is reserved for an explicit completion event.
 const floors = [0.02, 0.1, 0.3, 0.8]
 
-export function parseSignal(source: Source, row: RecordData): Signal | null {
+// Local CLI commands (/compact, /clear, /model …) and their transcript bookkeeping are
+// not agent tasks: they are handled by the CLI, never produce an end_turn, so tracking
+// them would leave a phantom "running" task forever. The injected compact summary is
+// likewise context reconstruction, not a user request.
+function isLocalCommandArtifact(row: RecordData, content: unknown): boolean {
+  if (row.isCompactSummary) return true
+  if (typeof content === 'string') {
+    const s = content.trim()
+    if (s.startsWith('/')) return true
+    if (/<(?:command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)\b/.test(s)) return true
+  }
+  return false
+}
+
+export function parseSignal(source: Source, row: RecordData, lang: Lang = 'en'): Signal | null {
   if (source === 'Codex') {
     const p = row.payload ?? {}
     if (row.type === 'event_msg') {
-      if (p.type === 'user_message') return { kind: 'title', title: taskTitleFromPrompt(promptText(p.message)) }
+      if (p.type === 'user_message') return { kind: 'title', title: taskTitleFromPrompt(promptText(p.message), lang) }
       if (p.type === 'task_started') return { kind: 'start', id: p.turn_id }
       if (p.type === 'task_complete') return { kind: 'complete', id: p.turn_id }
       if (p.type === 'error' && p.will_retry === false) return { kind: 'fail', id: p.turn_id }
@@ -25,7 +43,7 @@ export function parseSignal(source: Source, row: RecordData): Signal | null {
     }
     if (row.type === 'response_item' && p.type === 'message' && p.role === 'user') {
       const text = promptText(p.content)
-      if (text && !text.startsWith('<environment_context>')) return { kind: 'title', title: taskTitleFromPrompt(text) }
+      if (text && !text.startsWith('<environment_context>')) return { kind: 'title', title: taskTitleFromPrompt(text, lang) }
     }
     if (row.type === 'response_item' && ['function_call', 'custom_tool_call'].includes(p.type)) {
       return { kind: 'activity', stage: toolStage(p.name, p.arguments ?? p.input) }
@@ -38,8 +56,9 @@ export function parseSignal(source: Source, row: RecordData): Signal | null {
       const c = m.content
       if (Array.isArray(c) && c.some((b: RecordData) => b.type === 'tool_result')) return { kind: 'resume' }
       if (typeof c === 'string' && c.startsWith('[Request interrupted by user')) return { kind: 'cancel' }
+      if (isLocalCommandArtifact(row, c)) return null
       if (typeof c === 'string' || (Array.isArray(c) && c.some((b: RecordData) => b.type === 'text'))) {
-        return { kind: 'start', id: row.uuid, title: taskTitleFromPrompt(promptText(c)) }
+        return { kind: 'start', id: row.uuid, title: taskTitleFromPrompt(promptText(c), lang) }
       }
     }
     if (row.type === 'assistant') {
@@ -62,7 +81,7 @@ function toolStage(name: unknown, input: unknown): number {
 
 interface Task {
   id: string; title: string; source: Source; state: ProgressEvent['state']; stage: number
-  start: number; touched: number; progress: number; activities: number; notice: number; approvalSince?: number; requestId?: string
+  start: number; touched: number; progress: number; activities: number; notice: number; approvalSince?: number; requestId?: string; terminalApp?: string
 }
 
 export class TaskTracker {
@@ -71,13 +90,13 @@ export class TaskTracker {
   accept(key: string, source: Source, signal: Signal, now = Date.now()): void {
     let task = this.tasks.get(key)
     if (signal.kind === 'title') {
-      if (task && ['running', 'waiting', 'approval'].includes(task.state)) task.title = signal.title ?? 'Agent Task'
-      else this.pendingTitles.set(key, signal.title ?? 'Agent Task')
+      if (task && ['running', 'waiting', 'approval'].includes(task.state)) task.title = signal.title ?? t(getLanguage(), 'agentTask')
+      else this.pendingTitles.set(key, signal.title ?? t(getLanguage(), 'agentTask'))
       return
     }
     if (signal.kind === 'start') {
       if (task?.id === signal.id) return
-      task = { id: signal.id ?? `${key}:${now}`, title: signal.title ?? this.pendingTitles.get(key) ?? 'Agent Task', source, state: 'running', stage: 0,
+      task = { id: signal.id ?? `${key}:${now}`, title: signal.title ?? this.pendingTitles.get(key) ?? t(getLanguage(), 'agentTask'), source, state: 'running', stage: 0,
         start: now, touched: now, progress: 0.02, activities: 0, notice: 0 }
       this.tasks.set(key, task)
       this.pendingTitles.delete(key)
@@ -97,6 +116,7 @@ export class TaskTracker {
     if (signal.kind === 'approval') {
       if (task.state !== 'approval') { task.notice++; task.approvalSince = now }
       task.state = 'approval'; task.requestId = signal.requestId
+      if (signal.terminalApp) task.terminalApp = signal.terminalApp
       return
     }
     if (task.approvalSince !== undefined) {
@@ -130,6 +150,7 @@ export class TaskTracker {
     const newest = [...all].sort((a,b) => b.touched-a.touched)[0]
     const task = approvals[0] ?? (newest?.state === 'failed' ? newest : (active.length ? active : all).sort((a, b) => b.touched - a.touched)[0])
     if (!task) return null
+    const lang = getLanguage()
     if (task.state === 'running' || task.state === 'waiting') {
       // No fabricated completion: an idle/crashed agent remains waiting at <=95%.
       task.state = now - task.touched > 90000 ? 'waiting' : 'running'
@@ -138,13 +159,31 @@ export class TaskTracker {
       task.progress = Math.min(0.95, Math.max(task.progress, floors[task.stage], estimate,
         0.02 + 0.7 * (1 - Math.exp(-task.activities / 24))))
     }
+    const stageKey = STAGE_KEYS[task.stage] ?? 'stage2'
+    const actKey = ACT_KEYS[task.stage] ?? 'act2'
+    const message =
+      task.state === 'approval' ? t(lang, 'msgApproval')
+      : task.state === 'completed' ? t(lang, 'complete')
+      : task.state === 'failed' ? t(lang, 'msgError')
+      : task.state === 'waiting' ? t(lang, 'msgWaiting')
+      : t(lang, actKey)
     return {
-      taskId: task.id, noticeId: `${task.id}:${task.notice}`, taskTitle: task.title, title: `${task.source}${active.length > 1 ? ` · ${active.length} 个任务运行中` : ''}`,
-      state: task.state, progress: task.progress, stage: stages[task.stage], stageIndex: task.stage,
+      taskId: task.id, noticeId: `${task.id}:${task.notice}`,
+      source: task.source, activeCount: active.length > 1 ? active.length : undefined,
+      terminalApp: task.terminalApp,
+      title: task.title,
+      state: task.state, progress: task.progress, stage: t(lang, stageKey), stageIndex: task.stage,
       etaSeconds: null, estimated: true,
-      message: task.state === 'approval' ? 'Return to Agent to approve' : task.state === 'completed' ? 'Complete' : task.state === 'waiting' ? '等待 Agent 事件' : '预估进度 · 以真实完成事件为准',
-      error: task.state === 'failed' ? 'Agent 返回错误，请查看原任务' : undefined,
+      message,
+      error: task.state === 'failed' ? t(lang, 'msgError') : undefined,
       startedAt: task.start
+    }
+  }
+
+  /** Drop terminal tasks so a baseline backfill surfaces only still-active work. */
+  pruneTerminal(): void {
+    for (const [k, t] of this.tasks) {
+      if (['completed', 'failed', 'cancelled'].includes(t.state)) this.tasks.delete(k)
     }
   }
 }
@@ -178,16 +217,48 @@ export class AgentMonitor {
       this.schedule()
     }, 1200)
   }
+  /** Reconstruct still-active tasks from an existing session file on startup. */
+  private async backfill(path: string, source: Source): Promise<void> {
+    const info = await stat(path)
+    const MAX = 8 * 1024 * 1024
+    let start = 0
+    let size = info.size
+    if (size > MAX) { start = size - MAX; size = MAX }
+    const buf = Buffer.alloc(size)
+    const handle = await open(path, 'r')
+    try {
+      const { bytesRead } = await handle.read(buf, 0, size, start)
+      let data = buf.subarray(0, bytesRead)
+      if (start > 0) {
+        const nl = data.indexOf(10)
+        data = nl === -1 ? Buffer.alloc(0) : data.subarray(nl + 1)
+      }
+      let from = 0
+      for (let end = data.indexOf(10); end !== -1; end = data.indexOf(10, from)) {
+        try {
+          const row = JSON.parse(data.subarray(from, end).toString('utf8'))
+          const signal = parseSignal(source, row, getLanguage())
+          if (signal) this.tracker.accept(path, source, signal)
+        } catch { /* partial/malformed record is not a lifecycle event */ }
+        from = end + 1
+      }
+    } finally { await handle.close() }
+    this.cursors.set(path, { offset: info.size, pending: Buffer.alloc(0), source, inode: info.ino })
+  }
   async poll(baseline = false): Promise<void> {
     const seen = new Set<string>()
     for (const [root, source] of this.roots) {
       for (const path of await this.files(root)) {
         seen.add(path)
         try {
+          if (baseline) {
+            await this.backfill(path, source)
+            continue
+          }
           const info = await stat(path)
           let cursor = this.cursors.get(path)
           if (!cursor) {
-            cursor = { offset: baseline || info.mtimeMs < this.startedAt ? info.size : 0,
+            cursor = { offset: info.mtimeMs < this.startedAt ? info.size : 0,
               pending: Buffer.alloc(0), source, inode: info.ino }
             this.cursors.set(path, cursor)
           }
@@ -208,7 +279,7 @@ export class AgentMonitor {
                 const row = JSON.parse(data.subarray(from, end).toString('utf8'))
                 // Ignore replayed history in newly copied/forked session files.
                 if (Date.parse(row.timestamp) >= this.startedAt) {
-                  const signal = parseSignal(source, row)
+                  const signal = parseSignal(source, row, getLanguage())
                   if (signal) this.tracker.accept(path, source, signal)
                 }
               } catch { /* partial/malformed record is not a lifecycle event */ }
@@ -219,6 +290,7 @@ export class AgentMonitor {
         } catch { /* session may be removed while scanning */ }
       }
     }
+    if (baseline) this.tracker.pruneTerminal()
     for (const path of this.cursors.keys()) if (!seen.has(path)) this.cursors.delete(path)
     await this.readHooks()
     const snapshot = this.tracker.snapshot()
@@ -241,7 +313,7 @@ export class AgentMonitor {
       }
       for (const {file,row} of events.sort((a,b)=>a.row.timestamp-b.row.timestamp)) {
         if (['Codex','Claude Code'].includes(row.source) && ['approval','resume','cancel','fail'].includes(row.kind) && typeof row.path === 'string') {
-          this.tracker.hook(row.path, row.source, {kind:row.kind,id:row.id,requestId:row.requestId})
+          this.tracker.hook(row.path, row.source, {kind:row.kind,id:row.id,requestId:row.requestId,terminalApp:row.terminalApp})
         }
         await unlink(file)
       }

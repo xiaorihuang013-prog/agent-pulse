@@ -6,6 +6,7 @@ import { registerIpc } from './ipc'
 import { loadSettings } from './settings'
 import { createTray } from './tray'
 import { createWidgetWindow, getMainWindow, getWidget } from './windows'
+import { focusAgentTerminal } from './openAgent'
 
 const agent = new MockAgent()
 
@@ -30,6 +31,7 @@ if (!gotLock) {
 
     let latest: ProgressEvent | null = null
     ipcMain.handle('agent:get-progress', () => latest)
+    ipcMain.on('agent:open', () => focusAgentTerminal(latest?.terminalApp))
     const publish = (e: ProgressEvent): void => {
       const newTask = !latest || e.taskId !== latest.taskId || (e.state === 'running' && !['running', 'waiting'].includes(latest.state))
       latest = e

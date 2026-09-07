@@ -22,7 +22,8 @@ def main():
     dest.mkdir(parents=True, exist_ok=True, mode=0o700)
     payload = {'source': source, 'kind': kind, 'timestamp': time.time() * 1000,
                'path': row.get('transcript_path'), 'id': row.get('turn_id'),
-               'requestId': row.get('tool_use_id') or row.get('tool_name') or 'permission'}
+               'requestId': row.get('tool_use_id') or row.get('tool_name') or 'permission',
+               'terminalApp': os.environ.get('TERM_PROGRAM')}
     name = str(uuid.uuid4())
     tmp = dest / (name + '.tmp')
     tmp.write_text(json.dumps(payload), encoding='utf-8')

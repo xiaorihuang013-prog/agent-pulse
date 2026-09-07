@@ -1,7 +1,18 @@
 import { app, Menu, Tray } from 'electron'
 import type { MockAgent } from './mockAgent'
 import type { Appearance } from '../shared/types'
-import { getAppearance, getSettings, setAppearance, setSoundEnabled } from './settings'
+import type { Lang } from '../shared/i18n'
+import { t } from '../shared/i18n'
+import {
+  getAppearance,
+  getLanguage,
+  getSettings,
+  isNotifyEnabled,
+  setAppearance,
+  setLanguage,
+  setNotifyEnabled,
+  setSoundEnabled
+} from './settings'
 import { broadcastSettings } from './ipc'
 import { showMainWindow, toggleWidgetVisibility } from './windows'
 
@@ -17,9 +28,10 @@ export function createTray(agent: MockAgent): void {
 }
 
 function appearanceItems(agent: MockAgent): Electron.MenuItemConstructorOptions[] {
+  const lang = getLanguage()
   const current = getAppearance()
-  const make = (label: string, value: Appearance): Electron.MenuItemConstructorOptions => ({
-    label,
+  const make = (key: 'appearanceAuto' | 'appearanceDark' | 'appearanceLight', value: Appearance): Electron.MenuItemConstructorOptions => ({
+    label: t(lang, key),
     type: 'radio',
     checked: current === value,
     click: () => {
@@ -28,26 +40,44 @@ function appearanceItems(agent: MockAgent): Electron.MenuItemConstructorOptions[
       rebuildMenu(agent)
     }
   })
-  return [make('Auto (invert system)', 'auto'), make('Dark', 'dark'), make('Light', 'light')]
+  return [make('appearanceAuto', 'auto'), make('appearanceDark', 'dark'), make('appearanceLight', 'light')]
+}
+
+function languageItems(agent: MockAgent): Electron.MenuItemConstructorOptions[] {
+  const current = getLanguage()
+  const make = (label: string, value: Lang): Electron.MenuItemConstructorOptions => ({
+    label,
+    type: 'radio',
+    checked: current === value,
+    click: () => {
+      setLanguage(value)
+      broadcastSettings()
+      rebuildMenu(agent)
+    }
+  })
+  return [make('English', 'en'), make('中文', 'zh')]
 }
 
 function rebuildMenu(agent: MockAgent): void {
   if (!tray) return
+  const lang = getLanguage()
   const sound = getSettings().soundEnabled
+  const notify = isNotifyEnabled()
 
   const menu = Menu.buildFromTemplate([
-    { label: 'Show / Hide Widget', click: () => toggleWidgetVisibility() },
-    { label: 'Open Main Window', click: () => showMainWindow() },
+    { label: t(lang, 'showHideWidget'), click: () => toggleWidgetVisibility() },
+    { label: t(lang, 'openMain'), click: () => showMainWindow() },
     { type: 'separator' },
-    { label: 'Run Demo Task', click: () => agent.start() },
-    { label: 'Pause', click: () => agent.pause() },
-    { label: 'Resume', click: () => agent.resume() },
-    { label: 'Cancel', click: () => agent.cancel() },
-    { label: 'Simulate Failure', click: () => agent.fail() },
+    { label: t(lang, 'runDemo'), click: () => agent.start() },
+    { label: t(lang, 'pause'), click: () => agent.pause() },
+    { label: t(lang, 'resume'), click: () => agent.resume() },
+    { label: t(lang, 'cancel'), click: () => agent.cancel() },
+    { label: t(lang, 'simulateFailure'), click: () => agent.fail() },
     { type: 'separator' },
-    { label: 'Appearance', submenu: appearanceItems(agent) },
+    { label: t(lang, 'appearance'), submenu: appearanceItems(agent) },
+    { label: t(lang, 'language'), submenu: languageItems(agent) },
     {
-      label: 'Sound',
+      label: t(lang, 'sound'),
       type: 'checkbox',
       checked: sound,
       click: (item) => {
@@ -55,8 +85,17 @@ function rebuildMenu(agent: MockAgent): void {
         broadcastSettings()
       }
     },
+    {
+      label: t(lang, 'notifications'),
+      type: 'checkbox',
+      checked: notify,
+      click: (item) => {
+        setNotifyEnabled(item.checked)
+        broadcastSettings()
+      }
+    },
     { type: 'separator' },
-    { label: 'Quit', click: () => app.quit() }
+    { label: t(lang, 'quit'), click: () => app.quit() }
   ])
 
   tray.setContextMenu(menu)

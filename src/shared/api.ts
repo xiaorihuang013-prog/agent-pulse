@@ -7,9 +7,11 @@ export interface AgentPulseApi {
   onSettingsChanged(cb: (s: SettingsSnapshot) => void): () => void
   getSettings(): Promise<SettingsSnapshot>
   setAppearance(appearance: Appearance): void
+  notify(title: string, body: string): void
   setMode(mode: WidgetMode): void
   move(dx: number, dy: number): void
   moveEnd(): void
   openMain(): void
+  openAgent(): void
   hideToWidget(): void
 }

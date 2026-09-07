@@ -21,6 +21,24 @@ test('Claude tool responses and subagents never start a user task', () => {
   assert.equal(parseSignal('Claude Code', {type:'assistant',message:{stop_reason:'end_turn'}}).kind, 'complete')
   assert.equal(parseSignal('Claude Code', {type:'assistant',isApiErrorMessage:true,message:{stop_reason:'end_turn'}}).kind, 'fail')
 })
+test('local CLI commands and compact bookkeeping never start a task', () => {
+  assert.equal(parseSignal('Claude Code', {type:'user',uuid:'a',message:{content:'/compact'}}), null)
+  assert.equal(parseSignal('Claude Code', {type:'user',uuid:'b',message:{content:'<command-name>/compact</command-name>'}}), null)
+  assert.equal(parseSignal('Claude Code', {type:'user',uuid:'c',message:{content:'<local-command-stdout>Compacted</local-command-stdout>'}}), null)
+  assert.equal(parseSignal('Claude Code', {type:'user',uuid:'d',isCompactSummary:true,message:{content:'This session is being continued…'}}), null)
+  assert.equal(parseSignal('Claude Code', {type:'user',uuid:'e',message:{content:'执行任务'}}).kind, 'start')
+})
+test('terminal bundle resolves $TERM_PROGRAM and falls back to Terminal', () => {
+  const { terminalBundle } = require('../src/main/openAgent.ts')
+  assert.equal(terminalBundle('iTerm.app'), 'com.googlecode.iterm2')
+  assert.equal(terminalBundle('vscode'), 'com.microsoft.VSCode')
+  assert.equal(terminalBundle('Apple_Terminal'), 'com.apple.Terminal')
+  assert.equal(terminalBundle('WarpTerminal'), 'dev.warp.Warp-Stable')
+  assert.equal(terminalBundle('WezTerm'), 'org.wezfurlong.wezterm')
+  assert.equal(terminalBundle('ghostty'), 'com.mitchellh.ghostty')
+  assert.equal(terminalBundle(undefined), 'com.apple.Terminal')
+  assert.equal(terminalBundle('unknown'), 'com.apple.Terminal')
+})
 test('estimated progress is monotonic, bounded, and never completes from elapsed time', () => {
   const t = new TaskTracker();t.accept('a','Codex',{kind:'start',id:'1'},0)
   let last=0
@@ -62,6 +80,23 @@ test('incremental reader skips history, handles split UTF-8, discovers new files
   } finally { m.stop();fs.rmSync(dir,{recursive:true,force:true}) }
 })
 
+test('baseline backfills in-progress tasks and drops completed ones', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-backfill-'))
+  const ts = (n) => new Date(Date.now() - 60000 + n).toISOString()
+  const row = (type, id, extra = {}) => JSON.stringify({ timestamp: ts(1), type: 'event_msg', payload: { type, turn_id: id, ...extra } }) + '\n'
+  fs.writeFileSync(path.join(dir, 'running.jsonl'), row('user_message', 't1', { message: '生成市场报告' }) + row('task_started', 't1'))
+  fs.writeFileSync(path.join(dir, 'done.jsonl'), row('task_started', 't2') + row('task_complete', 't2'))
+  const events = []
+  const m = new AgentMonitor(e => events.push(e), [[dir, 'Codex']], null)
+  try {
+    await m.poll(true)
+    assert.equal(events.length, 1)
+    assert.equal(events[0].state, 'running')
+    assert.equal(events[0].title, 'Generate Market Report')
+    assert.equal(events[0].source, 'Codex')
+  } finally { m.stop(); fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('English task titles follow the prompt and remain available after completion', () => {
   const {taskTitleFromPrompt}=require('../src/main/taskTitle.ts')
   assert.equal(taskTitleFromPrompt('帮我抓取某市场信息'),'Fetch Market Information')
@@ -71,9 +106,9 @@ test('English task titles follow the prompt and remain available after completio
   t.accept('a','Codex',{kind:'start',id:'1'},0)
   t.accept('a','Codex',parseSignal('Codex',{type:'event_msg',payload:{type:'user_message',message:'生成市场报告'}}),1)
   t.accept('a','Codex',{kind:'complete',id:'1'},2)
-  assert.equal(t.snapshot(2).taskTitle,'Generate Market Report')
+  assert.equal(t.snapshot(2).title,'Generate Market Report')
   t.accept('a','Codex',{kind:'start',id:'2'},3)
-  assert.equal(t.snapshot(3).taskTitle,'Agent Task')
+  assert.equal(t.snapshot(3).title,'Agent Task')
   const s=parseSignal('Claude Code',{type:'user',uuid:'c',message:{content:[{type:'text',text:'抓取信息'}]}})
   assert.equal(s.title,'Fetch Information')
 })

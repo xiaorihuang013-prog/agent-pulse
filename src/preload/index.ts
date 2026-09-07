@@ -31,6 +31,9 @@ const api: AgentPulseApi = {
   setAppearance(appearance: Appearance) {
     ipcRenderer.send('settings:set-appearance', appearance)
   },
+  notify(title: string, body: string) {
+    ipcRenderer.send('app:notify', title, body)
+  },
   setMode(mode: WidgetMode) {
     ipcRenderer.send('widget:mode', mode)
   },
@@ -42,6 +45,9 @@ const api: AgentPulseApi = {
   },
   openMain() {
     ipcRenderer.send('widget:open-main')
+  },
+  openAgent() {
+    ipcRenderer.send('agent:open')
   },
   hideToWidget() {
     ipcRenderer.send('main:hide-to-widget')

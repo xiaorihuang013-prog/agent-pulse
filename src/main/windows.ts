@@ -70,7 +70,7 @@ export function createMainWindow(): BrowserWindow {
   if (mainWindow) return mainWindow
   mainWindow = new BrowserWindow({
     width: 460,
-    height: 320,
+    height: 420,
     show: false,
     frame: true,
     title: 'Agent Pulse',

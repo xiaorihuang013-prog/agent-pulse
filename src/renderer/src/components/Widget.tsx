@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
 import type { Appearance, ProgressEvent, TaskState } from '@shared/types'
+import type { Lang } from '@shared/i18n'
+import { t } from '@shared/i18n'
 import type { WidgetMode } from '@shared/layout'
 import { useDrag } from '../hooks/useDrag'
+import { useElapsedTime } from '../hooks/useElapsedTime'
+import { formatElapsed, formatEta } from '../lib/format'
 import { playAlertSound } from '../lib/sound'
 import { HairlineProgress } from './HairlineProgress'
 
@@ -11,11 +15,15 @@ const APPEARANCE_ORDER: Appearance[] = ['auto', 'dark', 'light']
 export function Widget({
   event,
   soundEnabled,
+  notifyEnabled,
+  lang,
   appearance,
   setAppearance
 }: {
   event: ProgressEvent | null
   soundEnabled: boolean
+  notifyEnabled: boolean
+  lang: Lang
   appearance: Appearance
   setAppearance: (a: Appearance) => void
 }) {
@@ -23,10 +31,14 @@ export function Widget({
   const startedAt = event?.startedAt
 
   const [hovered, setHovered] = useState(false)
-  const [now, setNow] = useState(() => Date.now())
+  const [autoExpanded, setAutoExpanded] = useState(false)
+  const autoExpandTimer = useRef<number | null>(null)
+  const prevActiveRef = useRef(false)
 
   const heardAlerts = useRef(new Set<string>())
   const soundRef = useRef(soundEnabled)
+  const notifyRef = useRef(notifyEnabled)
+  const langRef = useRef(lang)
   const expandTimer = useRef<number | null>(null)
   const collapseTimer = useRef<number | null>(null)
 
@@ -34,28 +46,56 @@ export function Widget({
     soundRef.current = soundEnabled
   }, [soundEnabled])
 
-  // One cue per task / alert transition; polling and hover never replay it.
+  useEffect(() => {
+    notifyRef.current = notifyEnabled
+  }, [notifyEnabled])
+
+  useEffect(() => {
+    langRef.current = lang
+  }, [lang])
+
+  // One cue + optional notification per task / alert transition; polling never replays it.
   useEffect(() => {
     const key = `${event?.taskId ?? 'demo'}:${event?.noticeId ?? ''}:${state}`
     if ((state === 'completed' || state === 'approval' || state === 'failed') && !heardAlerts.current.has(key)) {
       heardAlerts.current.add(key)
       if (heardAlerts.current.size > 256) heardAlerts.current.delete(heardAlerts.current.values().next().value!)
       playAlertSound(state, soundRef.current)
+      if (notifyRef.current) {
+        const subject = event?.title ?? t(langRef.current, 'agentTask')
+        if (state === 'completed') {
+          window.agentPulse.notify(t(langRef.current, 'notifyCompleteTitle'), t(langRef.current, 'notifyCompleteBody', { title: subject }))
+        } else if (state === 'failed') {
+          window.agentPulse.notify(t(langRef.current, 'notifyFailedTitle'), t(langRef.current, 'notifyFailedBody', { title: subject }))
+        } else {
+          const agent = event?.source ?? 'Agent'
+          window.agentPulse.notify(t(langRef.current, 'notifyApprovalTitle'), t(langRef.current, 'notifyApprovalBody', { agent }))
+        }
+      }
     }
-  }, [state, event?.taskId, event?.noticeId])
+  }, [state, event?.taskId, event?.noticeId, event?.title])
 
-  // Tick elapsed time once per second while the task is actively progressing.
+  // Auto-expand for 3s when a task starts; hover behavior is unchanged.
   useEffect(() => {
-    if (startedAt == null) return
-    setNow(Date.now())
-    const active = state === 'running' || state === 'waiting' || state === 'paused'
-    if (!active) return
-    const id = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(id)
-  }, [startedAt, state])
+    const isActive = state === 'running' || state === 'waiting' || state === 'paused'
+    if (isActive && !prevActiveRef.current) {
+      setAutoExpanded(true)
+      if (autoExpandTimer.current) window.clearTimeout(autoExpandTimer.current)
+      autoExpandTimer.current = window.setTimeout(() => setAutoExpanded(false), 3000)
+    }
+    prevActiveRef.current = isActive
+  }, [state])
+
+  useEffect(() => () => {
+    if (autoExpandTimer.current) window.clearTimeout(autoExpandTimer.current)
+  }, [])
+
+  const active = state === 'running' || state === 'waiting' || state === 'paused'
+  const elapsedMs = useElapsedTime(startedAt, active)
+  const elapsed = elapsedMs != null ? formatElapsed(elapsedMs) : '--:--'
 
   const mode: WidgetMode =
-    state === 'approval' ? 'approval' : state === 'failed' ? 'failed' : state === 'completed' ? 'completed' : hovered ? 'expanded' : 'compact'
+    state === 'approval' ? 'approval' : state === 'failed' ? 'failed' : state === 'completed' ? 'completed' : (hovered || autoExpanded) ? 'expanded' : 'compact'
 
   useEffect(() => {
     window.agentPulse.setMode(mode)
@@ -86,29 +126,31 @@ export function Widget({
     }, 120)
   }
 
-  const drag = useDrag(() => window.agentPulse.openMain())
+  const drag = useDrag(() => {
+    if (state === 'approval') window.agentPulse.openAgent()
+    else window.agentPulse.openMain()
+  })
 
   const cycleAppearance = (): void => {
     const i = APPEARANCE_ORDER.indexOf(appearance)
     setAppearance(APPEARANCE_ORDER[(i + 1) % APPEARANCE_ORDER.length])
   }
 
-  const elapsed = startedAt != null ? formatElapsed(now - startedAt) : '--:--'
-
   return (
     <div
       className={`widget widget--${mode}`}
+      data-state={state}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       onPointerDown={drag.onPointerDown}
     >
       <div className="widget__card" key={`${mode === 'approval' || mode === 'failed' ? event?.noticeId ?? event?.taskId ?? mode : 'normal'}`}>
         {mode === 'approval' ? (
-          <ApprovalView agent={event?.title.split(' · ')[0] ?? 'Agent'} />
+          <ApprovalView agent={event?.source ?? 'Agent'} lang={lang} />
         ) : mode === 'completed' ? (
-          <CompletedView />
+          <CompletedView lang={lang} />
         ) : mode === 'failed' ? (
-          <FailedView error={event?.error ?? 'Unknown error'} />
+          <FailedView error={event?.error ?? t(lang, 'unknownError')} lang={lang} />
         ) : (
           <>
             <div className="widget__head">
@@ -116,11 +158,11 @@ export function Widget({
               <StatusGlyph state={state} />
             </div>
             <div className="widget__body">
-              <div className="widget__title">{event?.title ?? 'Agent task'}</div>
+              <div className="widget__title">{event?.title ?? t(lang, 'agentTask')}</div>
               <HairlineProgress target={event?.progress ?? 0} />
               <div className="widget__meta">
-                <span className="widget__stage">{event?.estimated ? '预估 · ' : ''}{event?.stage ?? '—'}</span>
-                <span className="widget__eta">{formatEta(event)}</span>
+                <span className="widget__stage">{event?.estimated ? t(lang, 'estimated') : ''}{event?.stage ?? '—'}</span>
+                <span className="widget__eta">{formatEta(event, lang)}</span>
               </div>
               <div className="widget__message">
                 <span>{event?.message ?? ''}</span>
@@ -128,11 +170,16 @@ export function Widget({
             </div>
           </>
         )}
+        {mode === 'compact' && (
+          <div className="widget__compact-progress">
+            <HairlineProgress target={event?.progress ?? 0} />
+          </div>
+        )}
         {mode === 'expanded' && (
           <button
             type="button"
             className="widget__theme"
-            aria-label={`Appearance: ${appearance}`}
+            aria-label={`${t(lang, 'appearance')}: ${appearance}`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
@@ -167,56 +214,36 @@ function DotLoader({ className }: { className?: string }) {
   )
 }
 
-function CompletedView() {
+function CompletedView({ lang }: { lang: Lang }) {
   return (
     <div className="completed">
       <div className="completed__check">✓</div>
-      <div className="completed__label">Complete</div>
+      <div className="completed__label">{t(lang, 'complete')}</div>
     </div>
   )
 }
 
-function ApprovalView({ agent }: { agent: string }) {
+function ApprovalView({ agent, lang }: { agent: string; lang: Lang }) {
+  const [l1, l2] = t(lang, 'approvalHint', { agent }).split('\n')
   return (
     <div className="approval" role="status" aria-live="polite">
       <div className="approval__icon" aria-hidden="true">!</div>
-      <div className="approval__label">Approval</div>
-      <div className="approval__hint">Return to {agent}<br />to approve</div>
+      <div className="approval__label">{t(lang, 'approval')}</div>
+      <div className="approval__hint">{l1}<br />{l2}</div>
     </div>
   )
 }
 
-function FailedView({ error }: { error: string }) {
+function FailedView({ error, lang }: { error: string; lang: Lang }) {
   return (
     <div className="failed" role="alert">
       <div className="failed__icon" aria-hidden="true">×</div>
-      <div className="failed__label">Failed</div>
+      <div className="failed__label">{t(lang, 'failed')}</div>
       <div className="failed__error">{error}</div>
     </div>
   )
 }
 
-function formatElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  const mm = String(m).padStart(2, '0')
-  const ss = String(s).padStart(2, '0')
-  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-}
-
 function appearanceGlyph(a: Appearance): string {
   return a === 'auto' ? '◐' : a === 'dark' ? '●' : '○'
-}
-
-function formatEta(event: ProgressEvent | null): string {
-  if (!event) return '—'
-  if (event.state === 'paused') return 'Paused'
-  if (event.state === 'queued') return 'Queued'
-  if (event.state === 'cancelled') return 'Stopped'
-  if (event.etaSeconds == null) return '—'
-  const s = event.etaSeconds
-  if (s < 60) return `${s}s`
-  return `${Math.floor(s / 60)}m ${s % 60}s`
 }

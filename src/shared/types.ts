@@ -1,5 +1,7 @@
 // Shared types between the Electron main and renderer processes.
 
+import type { Lang } from './i18n'
+
 export type TaskState =
   | 'queued'
   | 'running'
@@ -21,7 +23,12 @@ export interface Stage {
 export interface ProgressEvent {
   taskId?: string
   noticeId?: string
-  taskTitle?: string
+  /** The agent that owns the task (real monitor only). */
+  source?: 'Codex' | 'Claude Code'
+  /** >1 when multiple tasks are active (shown as a "N tasks running" hint). */
+  activeCount?: number
+  /** $TERM_PROGRAM of the terminal running the agent (captured by the approval hook). */
+  terminalApp?: string
   estimated?: boolean
   title: string
   state: TaskState
@@ -61,4 +68,6 @@ export interface SettingsSnapshot {
   soundEnabled: boolean
   theme: ThemeId
   appearance: Appearance
+  notifyEnabled: boolean
+  language: Lang
 }

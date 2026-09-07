@@ -1,8 +1,12 @@
 import type { ProgressEvent, Stage, TaskState } from '../shared/types'
+import type { Lang } from '../shared/i18n'
+import { getLanguage } from './settings'
 
-const TASK_TITLE = 'Research & draft market analysis'
+const TASK_TITLE: Record<Lang, string> = {
+  en: 'Research & draft market analysis',
+  zh: '调研并起草市场分析'
+}
 
-// Stage weights — the progress percentage is derived from these, never guessed.
 const STAGES: Stage[] = [
   { key: 'research', label: 'Research', weight: 0.2 },
   { key: 'collection', label: 'Collection', weight: 0.25 },
@@ -11,15 +15,36 @@ const STAGES: Stage[] = [
   { key: 'review', label: 'Review', weight: 0.1 }
 ]
 
-const MESSAGES: Record<string, string> = {
-  research: 'Scanning reference sources…',
-  collection: 'Fetching documents…',
-  analysis: 'Thinking…',
-  writing: 'Drafting output…',
-  review: 'Verifying result…'
+const STAGE_LABELS: Record<string, Record<Lang, string>> = {
+  research: { en: 'Research', zh: '调研' },
+  collection: { en: 'Collection', zh: '收集' },
+  analysis: { en: 'Analysis', zh: '分析' },
+  writing: { en: 'Writing', zh: '写作' },
+  review: { en: 'Review', zh: '审查' }
 }
 
-const WAITING_MESSAGE = 'Waiting for remote service…'
+const STAGE_MESSAGES: Record<string, Record<Lang, string>> = {
+  research: { en: 'Scanning reference sources…', zh: '正在扫描参考来源…' },
+  collection: { en: 'Fetching documents…', zh: '正在获取文档…' },
+  analysis: { en: 'Thinking…', zh: '正在思考…' },
+  writing: { en: 'Drafting output…', zh: '正在起草输出…' },
+  review: { en: 'Verifying result…', zh: '正在核验结果…' }
+}
+
+const WAITING_MESSAGE: Record<Lang, string> = {
+  en: 'Waiting for remote service…',
+  zh: '等待远程服务…'
+}
+
+const ERROR_MESSAGE: Record<Lang, string> = {
+  en: 'Analysis pipeline crashed — model unavailable.',
+  zh: '分析流水线崩溃 — 模型不可用。'
+}
+
+const STATE_MESSAGES: Record<Lang, Record<string, string>> = {
+  en: { queued: 'Queued…', paused: 'Paused', cancelled: 'Cancelled', completed: 'Done', running: 'Working…' },
+  zh: { queued: '排队中…', paused: '已暂停', cancelled: '已取消', completed: '完成', running: '工作中…' }
+}
 
 type Listener = (e: ProgressEvent) => void
 
@@ -79,7 +104,7 @@ export class MockAgent {
 
   fail(): void {
     this.state = 'failed'
-    this.error = 'Analysis pipeline crashed — model unavailable.'
+    this.error = ERROR_MESSAGE.en
     this.stopTimer()
     this.emit()
   }
@@ -159,22 +184,24 @@ export class MockAgent {
     return Math.max(0, Math.round((elapsed / p) * (1 - p) / 1000))
   }
 
-  private messageFor(): string {
+  private messageFor(lang: Lang): string {
     switch (this.state) {
       case 'queued':
-        return 'Queued…'
+        return STATE_MESSAGES[lang].queued
       case 'paused':
-        return 'Paused'
+        return STATE_MESSAGES[lang].paused
       case 'waiting':
-        return WAITING_MESSAGE
+        return WAITING_MESSAGE[lang]
       case 'cancelled':
-        return 'Cancelled'
+        return STATE_MESSAGES[lang].cancelled
       case 'failed':
-        return this.error ?? 'Failed'
+        return ERROR_MESSAGE[lang]
       case 'completed':
-        return 'Done'
-      case 'running':
-        return MESSAGES[STAGES[this.stageIndex]?.key] ?? 'Working…'
+        return STATE_MESSAGES[lang].completed
+      case 'running': {
+        const key = STAGES[this.stageIndex]?.key
+        return key ? (STAGE_MESSAGES[key]?.[lang] ?? STATE_MESSAGES[lang].running) : STATE_MESSAGES[lang].running
+      }
       default:
         return ''
     }
@@ -182,16 +209,17 @@ export class MockAgent {
 
   private emit(): void {
     if (!this.listener) return
+    const lang = getLanguage()
     const stage = STAGES[Math.min(this.stageIndex, STAGES.length - 1)]
     const e: ProgressEvent = {
-      title: TASK_TITLE,
+      title: TASK_TITLE[lang],
       state: this.state,
       progress: this.currentProgress(),
-      stage: stage.label,
+      stage: STAGE_LABELS[stage.key]?.[lang] ?? stage.label,
       stageIndex: this.stageIndex,
       etaSeconds: this.currentEta(),
-      message: this.messageFor(),
-      error: this.error,
+      message: this.messageFor(lang),
+      error: this.error ? ERROR_MESSAGE[lang] : undefined,
       startedAt: this.runStart
     }
     this.listener(e)
