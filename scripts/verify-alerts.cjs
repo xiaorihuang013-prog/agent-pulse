@@ -6,7 +6,7 @@ app.whenReady().then(async()=>{
   const win=new BrowserWindow({width:84,height:84,frame:false,transparent:true,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'out/preload/index.js')}})
   ipcMain.handle('agent:get-progress',()=>null)
   ipcMain.handle('settings:get',()=>({soundEnabled:true,theme:'monochrome-lime',appearance:'dark',notifyEnabled:false,language:'en'}))
-  ipcMain.on('widget:mode',(_,m)=>{const n={compact:84,expanded:200,approval:140,failed:140,completed:104}[m];win.setSize(n,n)})
+  ipcMain.on('widget:mode',(_,m)=>{const n={compact:[86,43],expanded:[200,200],approval:[140,140],failed:[140,140],completed:[104,104]}[m];win.setSize(n[0],n[1])})
   await win.loadFile(path.join(root,'out/renderer/index.html'));await pause(100)
   await win.webContents.executeJavaScript(`window.notes=[];window.AudioContext=class {
     state='running';currentTime=0;destination={};

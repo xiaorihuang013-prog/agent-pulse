@@ -8,7 +8,7 @@ import type { I18nKey, Lang } from '../shared/i18n'
 import { getLanguage } from './settings'
 
 type Source = 'Codex' | 'Claude Code'
-type Signal = { kind: 'start' | 'activity' | 'complete' | 'cancel' | 'fail' | 'title' | 'approval' | 'resume'; requestId?: string; stage?: number; id?: string; title?: string; terminalApp?: string }
+type Signal = { kind: 'start' | 'activity' | 'complete' | 'compact' | 'cancel' | 'fail' | 'title' | 'approval' | 'resume'; requestId?: string; stage?: number; id?: string; title?: string; terminalApp?: string; activity?: string }
 type RecordData = Record<string, any>
 const STAGE_KEYS: I18nKey[] = ['stage0', 'stage1', 'stage2', 'stage3']
 const ACT_KEYS: I18nKey[] = ['act0', 'act1', 'act2', 'act3']
@@ -16,16 +16,27 @@ const ACT_KEYS: I18nKey[] = ['act0', 'act1', 'act2', 'act3']
 // The final 5% is reserved for an explicit completion event.
 const floors = [0.02, 0.1, 0.3, 0.8]
 
-// Local CLI commands (/compact, /clear, /model …) and their transcript bookkeeping are
-// not agent tasks: they are handled by the CLI, never produce an end_turn, so tracking
-// them would leave a phantom "running" task forever. The injected compact summary is
-// likewise context reconstruction, not a user request.
+// Local CLI commands (/clear, /model …) and their transcript bookkeeping are not agent
+// tasks: they are handled by the CLI and never produce an end_turn, so tracking them
+// would leave a phantom "running" task forever.
 function isLocalCommandArtifact(row: RecordData, content: unknown): boolean {
-  if (row.isCompactSummary) return true
   if (typeof content === 'string') {
     const s = content.trim()
     if (s.startsWith('/')) return true
     if (/<(?:command-name|command-message|command-args|local-command-stdout|local-command-stderr|local-command-caveat)\b/.test(s)) return true
+  }
+  return false
+}
+
+// A context compaction ends the current chunk of work. Recognize the /compact command,
+// its <command-name> bookkeeping, and the injected compact summary, so the tracker marks
+// the active task complete instead of leaving it "running" forever.
+function isCompactEvent(row: RecordData, content: unknown): boolean {
+  if (row.isCompactSummary) return true
+  if (typeof content === 'string') {
+    const s = content.trim()
+    if (/^\/compact\b/.test(s)) return true
+    if (/<command-name>\s*\/compact/i.test(s)) return true
   }
   return false
 }
@@ -46,16 +57,19 @@ export function parseSignal(source: Source, row: RecordData, lang: Lang = 'en'):
       if (text && !text.startsWith('<environment_context>')) return { kind: 'title', title: taskTitleFromPrompt(text, lang) }
     }
     if (row.type === 'response_item' && ['function_call', 'custom_tool_call'].includes(p.type)) {
-      return { kind: 'activity', stage: toolStage(p.name, p.arguments ?? p.input) }
+      return { kind: 'activity', stage: toolStage(p.name, p.arguments ?? p.input), activity: describeActivity(p.name, p.arguments ?? p.input) }
     }
   } else {
     if (row.isSidechain || row.isMeta) return null
     const m = row.message ?? {}
     if (row.isApiErrorMessage) return { kind: 'fail' }
+    if (row.type === 'ai-title' && typeof row.aiTitle === 'string' && row.aiTitle) return { kind: 'title', title: row.aiTitle }
+    if (row.type === 'agent-name' && typeof row.agentName === 'string' && row.agentName) return { kind: 'title', title: row.agentName }
     if (row.type === 'user') {
       const c = m.content
       if (Array.isArray(c) && c.some((b: RecordData) => b.type === 'tool_result')) return { kind: 'resume' }
       if (typeof c === 'string' && c.startsWith('[Request interrupted by user')) return { kind: 'cancel' }
+      if (isCompactEvent(row, c)) return { kind: 'compact' }
       if (isLocalCommandArtifact(row, c)) return null
       if (typeof c === 'string' || (Array.isArray(c) && c.some((b: RecordData) => b.type === 'text'))) {
         return { kind: 'start', id: row.uuid, title: taskTitleFromPrompt(promptText(c), lang) }
@@ -64,7 +78,7 @@ export function parseSignal(source: Source, row: RecordData, lang: Lang = 'en'):
     if (row.type === 'assistant') {
       if (m.stop_reason === 'end_turn') return { kind: 'complete' }
       const tool = Array.isArray(m.content) && m.content.find((b: RecordData) => b.type === 'tool_use')
-      if (tool) return { kind: 'activity', stage: toolStage(tool.name, tool.input) }
+      if (tool) return { kind: 'activity', stage: toolStage(tool.name, tool.input), activity: describeActivity(tool.name, tool.input) }
       return { kind: 'activity', stage: 0 }
     }
   }
@@ -79,9 +93,53 @@ function toolStage(name: unknown, input: unknown): number {
   return 2
 }
 
+/** Codex encodes arguments as a JSON string; Claude passes a plain object. */
+function normalizeInput(input: unknown): RecordData {
+  if (typeof input === 'string') {
+    try {
+      const parsed = JSON.parse(input)
+      if (parsed && typeof parsed === 'object') return parsed
+    } catch { /* not JSON — e.g. Codex exec code */ }
+  }
+  return input && typeof input === 'object' ? (input as RecordData) : {}
+}
+
+function truncate(s: string, n = 60): string {
+  return s.length > n ? s.slice(0, n - 1) + '…' : s
+}
+
+/** Human-readable current step derived from the tool name + its arguments. */
+function describeActivity(name: unknown, input: unknown): string {
+  const raw = String(name ?? '')
+  const tool = raw.toLowerCase()
+  const arg = normalizeInput(input)
+  if (tool === 'bash') {
+    if (typeof arg.description === 'string' && arg.description) return `Bash: ${truncate(arg.description)}`
+    if (typeof arg.command === 'string') return `Bash: ${truncate(arg.command)}`
+  }
+  if (tool === 'read' && typeof arg.file_path === 'string') return `Read ${basename(arg.file_path)}`
+  if (tool === 'edit' && typeof arg.file_path === 'string') return `Edit ${basename(arg.file_path)}`
+  if (tool === 'write' && typeof arg.file_path === 'string') return `Write ${basename(arg.file_path)}`
+  if (tool === 'notebookedit') return typeof arg.notebook_path === 'string' ? `Edit ${basename(arg.notebook_path)}` : 'Edit notebook'
+  if (tool === 'taskcreate' && typeof arg.subject === 'string') return truncate(arg.subject)
+  if (tool === 'agent' && typeof arg.description === 'string' && arg.description) return truncate(arg.description)
+  if (tool === 'websearch' && typeof arg.query === 'string') return `Search ${truncate(arg.query)}`
+  if (tool === 'webfetch' && typeof arg.url === 'string') return `Fetch ${truncate(arg.url)}`
+  if (tool === 'skill' && typeof arg.skill === 'string') return `Skill ${arg.skill}`
+  // Codex tools
+  if (tool === 'exec') {
+    const rawArgs = typeof input === 'string' ? input : JSON.stringify(input ?? {})
+    const m = /cmd\s*:\s*["'`]([^"'`]{1,120})/.exec(rawArgs)
+    return m ? `exec: ${m[1]}` : 'exec'
+  }
+  if (tool === 'js' && typeof arg.title === 'string') return truncate(arg.title)
+  if (tool === 'request_user_input_async') return 'Waiting for user input'
+  return raw || 'Working'
+}
+
 interface Task {
   id: string; title: string; source: Source; state: ProgressEvent['state']; stage: number
-  start: number; touched: number; progress: number; activities: number; notice: number; approvalSince?: number; requestId?: string; terminalApp?: string
+  start: number; touched: number; progress: number; activities: number; notice: number; approvalSince?: number; requestId?: string; terminalApp?: string; activity?: string
 }
 
 export class TaskTracker {
@@ -123,13 +181,14 @@ export class TaskTracker {
       task.start += now - task.approvalSince
       task.approvalSince = undefined
     }
-    if (signal.kind === 'complete') { task.state = 'completed'; task.progress = 1 }
+    if (signal.kind === 'complete' || signal.kind === 'compact') { task.state = 'completed'; task.progress = 1 }
     else if (signal.kind === 'fail') { task.state = 'failed'; task.notice++ }
     else if (signal.kind === 'cancel') task.state = 'cancelled'
     else {
       task.state = 'running'
       task.stage = Math.max(task.stage, signal.stage ?? task.stage)
       task.activities++
+      if (signal.activity) task.activity = signal.activity
     }
   }
 
@@ -173,6 +232,7 @@ export class TaskTracker {
       terminalApp: task.terminalApp,
       title: task.title,
       state: task.state, progress: task.progress, stage: t(lang, stageKey), stageIndex: task.stage,
+      activity: task.activity,
       etaSeconds: null, estimated: true,
       message,
       error: task.state === 'failed' ? t(lang, 'msgError') : undefined,

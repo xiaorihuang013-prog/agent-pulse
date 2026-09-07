@@ -7,10 +7,11 @@ export interface WidgetSize {
 }
 
 /**
- * Square window dimensions; the card fills the window without an outer margin.
+ * Window dimensions; the card fills the window without an outer margin.
+ * `compact` is a horizontal rounded rectangle rather than a square.
  */
 export const WIDGET_SIZES: Record<WidgetMode, WidgetSize> = {
-  compact: { width: 84, height: 84 },
+  compact: { width: 86, height: 43 },
   expanded: { width: 200, height: 200 },
   completed: { width: 104, height: 104 },
   failed: { width: 140, height: 140 },

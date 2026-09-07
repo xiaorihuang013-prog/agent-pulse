@@ -36,6 +36,8 @@ export interface ProgressEvent {
   progress: number
   stage: string
   stageIndex: number
+  /** Human-readable description of the current tool action (detail board). */
+  activity?: string
   etaSeconds: number | null
   message: string
   error?: string

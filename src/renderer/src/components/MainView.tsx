@@ -54,7 +54,7 @@ export function MainView({
         </div>
       </div>
       <div className="m-stage">{event?.stage ?? '—'}</div>
-      <div className="m-message">{event?.message ?? ''}</div>
+      <div className="m-activity">{event?.activity ?? event?.message ?? ''}</div>
       <div className="m-state">
         {event
           ? `${stateLabel(lang, event.state)}${event.source ? ` · ${event.source}` : ''}${event.activeCount && event.activeCount > 1 ? t(lang, 'tasksRunning', { n: event.activeCount }) : ''}`

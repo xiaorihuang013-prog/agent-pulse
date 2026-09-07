@@ -165,7 +165,7 @@ export function Widget({
                 <span className="widget__eta">{formatEta(event, lang)}</span>
               </div>
               <div className="widget__message">
-                <span>{event?.message ?? ''}</span>
+                <span>{event?.activity ?? event?.message ?? ''}</span>
               </div>
             </div>
           </>

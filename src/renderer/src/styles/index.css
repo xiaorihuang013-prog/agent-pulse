@@ -118,8 +118,7 @@ body,
 }
 
 .widget--compact .widget__head > .glyph {
-  position: absolute;
-  top: calc(50% + 18px);
+  display: none;
 }
 
 .widget--compact .widget__body {
@@ -494,6 +493,15 @@ body,
   color: var(--secondary);
   min-height: 14px;
   line-height: 1.4;
+}
+
+.m-activity {
+  font-size: 13px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+  min-height: 16px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .m-state {
