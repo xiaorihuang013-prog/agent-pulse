@@ -1,7 +1,7 @@
 {
   "name": "agent-pulse",
   "version": "0.1.0",
-  "description": "Desktop Agent Progress Widget — an OS-level floating status component for long-running AI agent tasks",
+  "description": "Desktop Agent Progress Widget \u2014 an OS-level floating status component for long-running AI agent tasks",
   "main": "./out/main/index.js",
   "author": "eightsuns",
   "license": "MIT",
@@ -11,7 +11,10 @@
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web"
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "node --test tests/*.test.cjs",
+    "background:install": "npm run build && node scripts/install-background.cjs",
+    "background:uninstall": "node scripts/install-background.cjs --uninstall"
   },
   "dependencies": {
     "react": "^19.2.1",

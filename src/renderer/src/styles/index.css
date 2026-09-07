@@ -12,8 +12,8 @@
   --danger-soft: rgba(255, 92, 92, 0.16);
   --primary-dim: rgba(245, 245, 245, 0.07);
 
-  --dot: 4px;
-  --dot-gap: 3px;
+  --dot: 2px;
+  --dot-gap: 1.5px;
   --radius: 16px;
   --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -43,7 +43,7 @@ body,
 .widget {
   position: fixed;
   inset: 0;
-  padding: 10px; /* transparent margin so the glow can bloom outside the card */
+  padding: 0; /* glass edge is contained inside the card */
 }
 
 .widget__card {
@@ -52,24 +52,25 @@ body,
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #141419 0%, var(--background) 130%);
-  border: 1px solid var(--divider);
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow:
-    0 10px 32px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    inset 0 1px 2px rgba(255, 255, 255, 0.2),
+    inset 0 0 10px rgba(255, 255, 255, 0.08);
 }
 
-/* diagonal specular streak — the "machined hardware" flourish */
+/* The frosted light lives inside the square; its center stays pure black. */
 .widget__card::before {
   content: '';
   position: absolute;
-  top: -40%;
-  left: -40%;
-  width: 180%;
-  height: 180%;
-  background: linear-gradient(115deg, transparent 47%, rgba(255, 255, 255, 0.04) 50%, transparent 53%);
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 1px 3px rgba(255, 255, 255, 0.22),
+    inset 0 0 9px rgba(255, 255, 255, 0.1);
+  background: radial-gradient(ellipse at center, transparent 60%, rgba(235, 241, 249, 0.06) 100%);
   pointer-events: none;
 }
 
@@ -84,7 +85,18 @@ body,
 }
 
 .widget--compact .widget__head {
-  flex: 1;
+  position: absolute;
+  inset: 0;
+  padding: 0 4px;
+}
+
+.widget--compact .widget__head > .glyph {
+  position: absolute;
+  top: calc(50% + 18px);
+}
+
+.widget--compact .widget__body {
+  display: none;
 }
 
 .widget--expanded .widget__head {
@@ -95,7 +107,7 @@ body,
 .dotmatrix {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 3.5px;
   line-height: 1;
   animation: breathe 4s ease-in-out infinite;
 }
@@ -123,15 +135,6 @@ body,
   background: var(--accent);
   box-shadow: 0 0 calc(var(--dot) * 0.9) var(--accent-glow);
   animation: dotPop 0.18s ease-out both;
-}
-
-.dm-pct {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--accent);
-  opacity: 0.85;
-  margin-left: 1px;
-  letter-spacing: -0.03em;
 }
 
 @keyframes dotPop {
@@ -304,6 +307,10 @@ body,
   padding: 0 18px;
 }
 
+.completed {
+  padding: 0 10px;
+}
+
 .widget--completed .widget__card {
   border-color: var(--accent-soft);
   animation: completeGlow 0.7s ease-out;
@@ -325,21 +332,15 @@ body,
   animation: fadeUp 0.35s ease 0.5s both;
 }
 
-.completed__pct {
-  font-size: 10px;
-  color: var(--secondary);
-  animation: fadeUp 0.35s ease 0.65s both;
-}
-
 @keyframes completeGlow {
   0% {
-    box-shadow: 0 0 0 rgba(227, 255, 63, 0);
+    box-shadow: inset 0 0 10px rgba(255, 255, 255, 0.08);
   }
   40% {
-    box-shadow: 0 0 34px var(--accent-glow);
+    box-shadow: inset 0 0 24px var(--accent-glow);
   }
   100% {
-    box-shadow: 0 0 14px var(--accent-soft);
+    box-shadow: inset 0 0 10px var(--accent-soft);
   }
 }
 
@@ -394,7 +395,10 @@ body,
   color: var(--secondary);
   text-align: center;
   line-height: 1.5;
-  max-width: 260px;
+  max-width: 100%;
+  max-height: 110px;
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 
 /* ---------------------------------- main window ---------------------------------- */
@@ -409,6 +413,8 @@ body,
   display: flex;
   flex-direction: column;
   gap: 18px;
+  align-items: center;
+  text-align: center;
 }
 
 .mainview h1 {
@@ -430,12 +436,19 @@ body,
 }
 
 .m-state {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
   font-size: 12px;
   color: var(--secondary);
 }
 
 .mainview button {
-  align-self: flex-start;
+  align-self: center;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  box-shadow: none;
   background: transparent;
   border: 1px solid var(--divider);
   color: var(--primary);
@@ -452,4 +465,63 @@ body,
 .mainview button:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.mainview button:active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.mainview button:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+/* Attention stays inside the existing square card. */
+.widget--approval .widget__card {
+  border-color: rgba(245, 191, 103, 0.55);
+  animation: approvalGlow 2s ease-in-out infinite;
+}
+.approval {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  text-align: center;
+}
+.approval__icon {
+  width: 32px;
+  height: 32px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  color: #f5bf67;
+  font-size: 24px;
+  line-height: 29px;
+  animation: approvalPulse 2s ease-in-out infinite;
+}
+.approval__label {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #f5bf67;
+}
+.approval__hint { font-size: 10px; line-height: 1.4; color: var(--secondary); }
+@keyframes approvalPulse { 50% { transform: scale(1.09); opacity: 0.65; } }
+@keyframes approvalGlow { 50% { box-shadow: inset 0 0 14px rgba(245,191,103,0.2); } }
+.widget--failed .widget__card { animation: failureGlow 650ms ease-out; }
+.failed__icon { font-size: 38px; animation: failureShake 450ms ease-out; }
+.failed__error { font-size: 10px; max-height: 44px; }
+@keyframes failureShake {
+  0%,100% { transform: translateX(0); }
+  20%,60% { transform: translateX(-3px); }
+  40%,80% { transform: translateX(3px); }
+}
+@keyframes failureGlow { 35% { box-shadow: inset 0 0 22px var(--danger-soft); } }
+@media (prefers-reduced-motion: reduce) {
+  .approval__icon, .widget--approval .widget__card,
+  .failed__icon, .widget--failed .widget__card { animation: none; }
 }

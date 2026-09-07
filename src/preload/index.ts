@@ -5,9 +5,20 @@ import type { AgentPulseApi } from '../shared/api'
 
 const api: AgentPulseApi = {
   onProgress(cb) {
-    const listener = (_e: Electron.IpcRendererEvent, event: ProgressEvent): void => cb(event)
+    let receivedLive = false
+    let disposed = false
+    const listener = (_e: Electron.IpcRendererEvent, event: ProgressEvent): void => {
+      receivedLive = true
+      cb(event)
+    }
     ipcRenderer.on('agent:progress', listener)
-    return () => ipcRenderer.removeListener('agent:progress', listener)
+    void ipcRenderer.invoke('agent:get-progress').then((event: ProgressEvent | null) => {
+      if (event && !receivedLive && !disposed) cb(event)
+    }).catch(() => { /* renderer may be closing */ })
+    return () => {
+      disposed = true
+      ipcRenderer.removeListener('agent:progress', listener)
+    }
   },
   onSettingsChanged(cb) {
     const listener = (_e: Electron.IpcRendererEvent, s: SettingsSnapshot): void => cb(s)

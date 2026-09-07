@@ -1,29 +1,34 @@
 let ctx: AudioContext | null = null
+export type AlertTone = 'completed' | 'approval' | 'failed'
 
-/** Synthesized two-note completion chime — no audio asset required. */
-export function playCompletionSound(enabled: boolean): void {
-  if (!enabled) return
-  try {
-    ctx ??= new AudioContext()
-    const c = ctx
-    if (c.state === 'suspended') void c.resume()
-    const now = c.currentTime
-    const notes = [659.25, 987.77] // E5 → B5, short and bright
-    notes.forEach((f, i) => {
-      const osc = c.createOscillator()
-      const gain = c.createGain()
-      osc.type = 'sine'
-      osc.frequency.value = f
-      const t = now + i * 0.12
-      gain.gain.setValueAtTime(0, t)
-      gain.gain.linearRampToValueAtTime(0.16, t + 0.02)
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6)
-      osc.connect(gain)
-      gain.connect(c.destination)
-      osc.start(t)
-      osc.stop(t + 0.65)
-    })
-  } catch {
-    /* audio unavailable — ignore */
-  }
+export const ALERT_NOTES: Record<AlertTone, readonly number[]> = {
+  completed: [659.25, 987.77],
+  approval: [783.99, 783.99, 1046.5],
+  failed: [392, 293.66, 196]
 }
+
+/** Distinct short cues, played once per state transition and respecting Sound. */
+export function playAlertSound(tone: AlertTone, enabled: boolean): void {
+  if (!enabled) return
+  void (async () => {
+    try {
+      ctx ??= new AudioContext()
+      if (ctx.state === 'suspended') await ctx.resume()
+      const c = ctx, now = c.currentTime
+      ALERT_NOTES[tone].forEach((frequency, i) => {
+        const osc = c.createOscillator(), gain = c.createGain()
+        osc.type = 'sine'; osc.frequency.value = frequency
+        const t = now + i * (tone === 'approval' ? 0.21 : 0.14)
+        const length = tone === 'completed' ? 0.6 : 0.23
+        gain.gain.setValueAtTime(0, t)
+        gain.gain.linearRampToValueAtTime(0.13, t + 0.015)
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + length)
+        osc.connect(gain); gain.connect(c.destination)
+        osc.start(t); osc.stop(t + length + 0.03)
+        osc.onended = () => { osc.disconnect(); gain.disconnect() }
+      })
+    } catch { /* audio is unavailable */ }
+  })()
+}
+
+export function playCompletionSound(enabled: boolean): void { playAlertSound('completed', enabled) }

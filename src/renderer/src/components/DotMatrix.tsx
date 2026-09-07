@@ -2,6 +2,7 @@ import { memo } from 'react'
 
 /** 5×7 bitmap glyphs (1 = lit dot). */
 const FONT: Record<string, string[]> = {
+  '%': ['11001', '11001', '00010', '00100', '01000', '10011', '10011'],
   '0': ['01110', '10001', '10001', '10001', '10001', '10001', '01110'],
   '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
   '2': ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
@@ -36,13 +37,6 @@ export const DotMatrix = memo(function DotMatrix({ value }: { value: string }) {
   return (
     <span className="dotmatrix" aria-label={value}>
       {value.split('').map((ch, i) => {
-        if (ch === '%') {
-          return (
-            <span key={i} className="dm-pct">
-              %
-            </span>
-          )
-        }
         const glyph = FONT[ch]
         return glyph ? <Digit key={`${i}-${ch}`} glyph={glyph} /> : null
       })}

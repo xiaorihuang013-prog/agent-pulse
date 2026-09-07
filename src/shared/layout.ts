@@ -1,5 +1,5 @@
 /** Window modes shared between renderer (who decides) and main (who resizes). */
-export type WidgetMode = 'compact' | 'expanded' | 'completed' | 'failed'
+export type WidgetMode = 'compact' | 'expanded' | 'completed' | 'failed' | 'approval'
 
 export interface WidgetSize {
   width: number
@@ -7,12 +7,12 @@ export interface WidgetSize {
 }
 
 /**
- * Pixel dimensions for each widget mode. Includes ~10px transparent margin on
- * every side so the card's glow can bloom outside its own edge.
+ * Square window dimensions; the card fills the window without an outer margin.
  */
 export const WIDGET_SIZES: Record<WidgetMode, WidgetSize> = {
-  compact: { width: 260, height: 104 },
-  expanded: { width: 340, height: 200 },
-  completed: { width: 260, height: 104 },
-  failed: { width: 340, height: 168 }
+  compact: { width: 84, height: 84 },
+  expanded: { width: 200, height: 200 },
+  completed: { width: 104, height: 104 },
+  failed: { width: 140, height: 140 },
+  approval: { width: 140, height: 140 }
 }

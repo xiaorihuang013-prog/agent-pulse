@@ -4,20 +4,17 @@ import type { ProgressEvent, TaskState } from '@shared/types'
 import type { WidgetMode } from '@shared/layout'
 import { useAnimatedInteger } from '../hooks/useAnimatedInteger'
 import { useDrag } from '../hooks/useDrag'
-import { playCompletionSound } from '../lib/sound'
+import { playAlertSound } from '../lib/sound'
 import { DotMatrix } from './DotMatrix'
 import { HairlineProgress } from './HairlineProgress'
-
-const COMPLETED_HOLD_MS = 3600
 
 export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; soundEnabled: boolean }) {
   const state: TaskState = event?.state ?? 'queued'
   const pct = useAnimatedInteger(event?.progress ?? 0)
 
   const [hovered, setHovered] = useState(false)
-  const [showCompleted, setShowCompleted] = useState(false)
 
-  const prevState = useRef<TaskState>(state)
+  const heardAlerts = useRef(new Set<string>())
   const soundRef = useRef(soundEnabled)
   const expandTimer = useRef<number | null>(null)
   const collapseTimer = useRef<number | null>(null)
@@ -26,21 +23,18 @@ export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; s
     soundRef.current = soundEnabled
   }, [soundEnabled])
 
-  // Completed transition: transient completed view + chime, then revert to compact.
+  // One cue per task / alert transition; polling and hover never replay it.
   useEffect(() => {
-    const prev = prevState.current
-    prevState.current = state
-    if (prev !== 'completed' && state === 'completed') {
-      setShowCompleted(true)
-      playCompletionSound(soundRef.current)
-      const t = window.setTimeout(() => setShowCompleted(false), COMPLETED_HOLD_MS)
-      return () => window.clearTimeout(t)
+    const key = `${event?.taskId ?? 'demo'}:${event?.noticeId ?? ''}:${state}`
+    if ((state === 'completed' || state === 'approval' || state === 'failed') && !heardAlerts.current.has(key)) {
+      heardAlerts.current.add(key)
+      if (heardAlerts.current.size > 256) heardAlerts.current.delete(heardAlerts.current.values().next().value!)
+      playAlertSound(state, soundRef.current)
     }
-    if (state !== 'completed') setShowCompleted(false)
-  }, [state])
+  }, [state, event?.taskId, event?.noticeId])
 
   const mode: WidgetMode =
-    state === 'failed' ? 'failed' : showCompleted ? 'completed' : hovered ? 'expanded' : 'compact'
+    state === 'approval' ? 'approval' : state === 'failed' ? 'failed' : state === 'completed' ? 'completed' : hovered ? 'expanded' : 'compact'
 
   useEffect(() => {
     window.agentPulse.setMode(mode)
@@ -80,8 +74,10 @@ export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; s
       onMouseLeave={onMouseLeave}
       onPointerDown={drag.onPointerDown}
     >
-      <div className="widget__card">
-        {mode === 'completed' ? (
+      <div className="widget__card" key={`${mode === 'approval' || mode === 'failed' ? event?.noticeId ?? event?.taskId ?? mode : 'normal'}`}>
+        {mode === 'approval' ? (
+          <ApprovalView agent={event?.title.split(' · ')[0] ?? 'Agent'} />
+        ) : mode === 'completed' ? (
           <CompletedView />
         ) : mode === 'failed' ? (
           <FailedView error={event?.error ?? 'Unknown error'} />
@@ -95,7 +91,7 @@ export function Widget({ event, soundEnabled }: { event: ProgressEvent | null; s
               <div className="widget__title">{event?.title ?? 'Agent task'}</div>
               <HairlineProgress target={event?.progress ?? 0} />
               <div className="widget__meta">
-                <span className="widget__stage">{event?.stage ?? '—'}</span>
+                <span className="widget__stage">{event?.estimated ? '预估 · ' : ''}{event?.stage ?? '—'}</span>
                 <span className="widget__eta">{formatEta(event)}</span>
               </div>
               <div className="widget__message">
@@ -134,15 +130,24 @@ function CompletedView() {
     <div className="completed">
       <div className="completed__check">✓</div>
       <div className="completed__label">Complete</div>
-      <div className="completed__pct">100%</div>
+    </div>
+  )
+}
+
+function ApprovalView({ agent }: { agent: string }) {
+  return (
+    <div className="approval" role="status" aria-live="polite">
+      <div className="approval__icon" aria-hidden="true">!</div>
+      <div className="approval__label">Approval</div>
+      <div className="approval__hint">Return to {agent}<br />to approve</div>
     </div>
   )
 }
 
 function FailedView({ error }: { error: string }) {
   return (
-    <div className="failed">
-      <div className="failed__icon">⚠</div>
+    <div className="failed" role="alert">
+      <div className="failed__icon" aria-hidden="true">×</div>
       <div className="failed__label">Failed</div>
       <div className="failed__error">{error}</div>
     </div>

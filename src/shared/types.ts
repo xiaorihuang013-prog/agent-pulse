@@ -5,6 +5,7 @@ export type TaskState =
   | 'running'
   | 'paused'
   | 'waiting'
+  | 'approval'
   | 'completed'
   | 'failed'
   | 'cancelled'
@@ -18,6 +19,10 @@ export interface Stage {
 
 /** A single progress snapshot pushed from the mock agent (main) to the renderer. */
 export interface ProgressEvent {
+  taskId?: string
+  noticeId?: string
+  taskTitle?: string
+  estimated?: boolean
   title: string
   state: TaskState
   /** 0..1 */

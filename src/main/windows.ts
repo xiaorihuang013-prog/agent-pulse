@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen } from 'electron'
 import type { Rectangle } from 'electron'
 import { join } from 'path'
 import { WIDGET_SIZES } from '../shared/layout'
@@ -7,6 +7,8 @@ import { resolveWidgetBounds, setWidgetBounds } from './settings'
 
 let widget: BrowserWindow | null = null
 let mainWindow: BrowserWindow | null = null
+let quitting = false
+app.on('before-quit', () => { quitting = true })
 
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 
@@ -23,7 +25,8 @@ function commonWebPreferences() {
     preload: join(__dirname, '../preload/index.js'),
     sandbox: false,
     contextIsolation: true,
-    nodeIntegration: false
+    nodeIntegration: false,
+    autoplayPolicy: 'no-user-gesture-required' as const
   }
 }
 
@@ -54,7 +57,7 @@ export function createWidgetWindow(): BrowserWindow {
     widget.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
 
-  widget.on('ready-to-show', () => widget?.show())
+  // Stay hidden while the background monitor waits for a submitted task.
   widget.on('closed', () => {
     widget = null
   })
@@ -77,6 +80,7 @@ export function createMainWindow(): BrowserWindow {
   })
 
   mainWindow.on('close', (e) => {
+    if (quitting) return
     // Closing hides back to the widget rather than quitting the app.
     e.preventDefault()
     mainWindow?.hide()
