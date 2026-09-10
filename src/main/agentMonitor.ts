@@ -8,18 +8,23 @@ import type { I18nKey, Lang } from '../shared/i18n'
 import { getLanguage } from './settings'
 
 type Source = 'Codex' | 'Claude Code'
-type Signal = { kind: 'start' | 'activity' | 'complete' | 'compact' | 'cancel' | 'fail' | 'title' | 'approval' | 'resume'; requestId?: string; stage?: number; id?: string; title?: string; terminalApp?: string; activity?: string }
+type Signal = { kind: 'start' | 'activity' | 'complete' | 'compact' | 'cancel' | 'fail' | 'title' | 'approval' | 'resume'; requestId?: string; stage?: number; id?: string; title?: string; terminalApp?: string; activity?: string; fromAi?: boolean }
 type RecordData = Record<string, any>
 const STAGE_KEYS: I18nKey[] = ['stage0', 'stage1', 'stage2', 'stage3']
 const ACT_KEYS: I18nKey[] = ['act0', 'act1', 'act2', 'act3']
 // Estimated stage floors: understanding 10%, gathering 20%, execution 50%, review 15%.
 // The final 5% is reserved for an explicit completion event.
 const floors = [0.02, 0.1, 0.3, 0.8]
+// Tasks untouched this long are considered abandoned (crashed/forgotten session),
+// so they drop out of the active set instead of resurfacing as phantom "waiting" tasks.
+const STALE_TIMEOUT_MS = 15 * 60 * 1000
+// How long a terminal card (completed/failed/cancelled) stays visible before idling.
+const TERMINAL_GRACE_MS = 30 * 1000
 
 // Local CLI commands (/clear, /model …) and their transcript bookkeeping are not agent
 // tasks: they are handled by the CLI and never produce an end_turn, so tracking them
 // would leave a phantom "running" task forever.
-function isLocalCommandArtifact(row: RecordData, content: unknown): boolean {
+function isLocalCommandArtifact(content: unknown): boolean {
   if (typeof content === 'string') {
     const s = content.trim()
     if (s.startsWith('/')) return true
@@ -57,20 +62,20 @@ export function parseSignal(source: Source, row: RecordData, lang: Lang = 'en'):
       if (text && !text.startsWith('<environment_context>')) return { kind: 'title', title: taskTitleFromPrompt(text, lang) }
     }
     if (row.type === 'response_item' && ['function_call', 'custom_tool_call'].includes(p.type)) {
-      return { kind: 'activity', stage: toolStage(p.name, p.arguments ?? p.input), activity: describeActivity(p.name, p.arguments ?? p.input) }
+      return { kind: 'activity', stage: toolStage(p.name, p.arguments ?? p.input), activity: describeActivity(p.name, p.arguments ?? p.input, lang) }
     }
   } else {
     if (row.isSidechain || row.isMeta) return null
     const m = row.message ?? {}
     if (row.isApiErrorMessage) return { kind: 'fail' }
-    if (row.type === 'ai-title' && typeof row.aiTitle === 'string' && row.aiTitle) return { kind: 'title', title: row.aiTitle }
-    if (row.type === 'agent-name' && typeof row.agentName === 'string' && row.agentName) return { kind: 'title', title: row.agentName }
+    if (row.type === 'ai-title' && typeof row.aiTitle === 'string' && row.aiTitle) return { kind: 'title', title: row.aiTitle, fromAi: true }
+    if (row.type === 'agent-name' && typeof row.agentName === 'string' && row.agentName) return { kind: 'title', title: row.agentName, fromAi: true }
     if (row.type === 'user') {
       const c = m.content
       if (Array.isArray(c) && c.some((b: RecordData) => b.type === 'tool_result')) return { kind: 'resume' }
       if (typeof c === 'string' && c.startsWith('[Request interrupted by user')) return { kind: 'cancel' }
       if (isCompactEvent(row, c)) return { kind: 'compact' }
-      if (isLocalCommandArtifact(row, c)) return null
+      if (isLocalCommandArtifact(c)) return null
       if (typeof c === 'string' || (Array.isArray(c) && c.some((b: RecordData) => b.type === 'text'))) {
         return { kind: 'start', id: row.uuid, title: taskTitleFromPrompt(promptText(c), lang) }
       }
@@ -78,7 +83,7 @@ export function parseSignal(source: Source, row: RecordData, lang: Lang = 'en'):
     if (row.type === 'assistant') {
       if (m.stop_reason === 'end_turn') return { kind: 'complete' }
       const tool = Array.isArray(m.content) && m.content.find((b: RecordData) => b.type === 'tool_use')
-      if (tool) return { kind: 'activity', stage: toolStage(tool.name, tool.input), activity: describeActivity(tool.name, tool.input) }
+      if (tool) return { kind: 'activity', stage: toolStage(tool.name, tool.input), activity: describeActivity(tool.name, tool.input, lang) }
       return { kind: 'activity', stage: 0 }
     }
   }
@@ -108,8 +113,10 @@ function truncate(s: string, n = 60): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s
 }
 
-/** Human-readable current step derived from the tool name + its arguments. */
-function describeActivity(name: unknown, input: unknown): string {
+/** Human-readable current step derived from the tool name + its arguments.
+ * Tool verbs are localized via i18n; operands (file paths, commands, descriptions)
+ * are real content and stay verbatim. */
+function describeActivity(name: unknown, input: unknown, lang: Lang): string {
   const raw = String(name ?? '')
   const tool = raw.toLowerCase()
   const arg = normalizeInput(input)
@@ -117,15 +124,15 @@ function describeActivity(name: unknown, input: unknown): string {
     if (typeof arg.description === 'string' && arg.description) return `Bash: ${truncate(arg.description)}`
     if (typeof arg.command === 'string') return `Bash: ${truncate(arg.command)}`
   }
-  if (tool === 'read' && typeof arg.file_path === 'string') return `Read ${basename(arg.file_path)}`
-  if (tool === 'edit' && typeof arg.file_path === 'string') return `Edit ${basename(arg.file_path)}`
-  if (tool === 'write' && typeof arg.file_path === 'string') return `Write ${basename(arg.file_path)}`
-  if (tool === 'notebookedit') return typeof arg.notebook_path === 'string' ? `Edit ${basename(arg.notebook_path)}` : 'Edit notebook'
+  if (tool === 'read' && typeof arg.file_path === 'string') return `${t(lang, 'actRead')} ${basename(arg.file_path)}`
+  if (tool === 'edit' && typeof arg.file_path === 'string') return `${t(lang, 'actEdit')} ${basename(arg.file_path)}`
+  if (tool === 'write' && typeof arg.file_path === 'string') return `${t(lang, 'actWrite')} ${basename(arg.file_path)}`
+  if (tool === 'notebookedit') return typeof arg.notebook_path === 'string' ? `${t(lang, 'actEdit')} ${basename(arg.notebook_path)}` : t(lang, 'actEditNotebook')
   if (tool === 'taskcreate' && typeof arg.subject === 'string') return truncate(arg.subject)
   if (tool === 'agent' && typeof arg.description === 'string' && arg.description) return truncate(arg.description)
-  if (tool === 'websearch' && typeof arg.query === 'string') return `Search ${truncate(arg.query)}`
-  if (tool === 'webfetch' && typeof arg.url === 'string') return `Fetch ${truncate(arg.url)}`
-  if (tool === 'skill' && typeof arg.skill === 'string') return `Skill ${arg.skill}`
+  if (tool === 'websearch' && typeof arg.query === 'string') return `${t(lang, 'actSearch')} ${truncate(arg.query)}`
+  if (tool === 'webfetch' && typeof arg.url === 'string') return `${t(lang, 'actFetch')} ${truncate(arg.url)}`
+  if (tool === 'skill' && typeof arg.skill === 'string') return `${t(lang, 'actSkill')} ${arg.skill}`
   // Codex tools
   if (tool === 'exec') {
     const rawArgs = typeof input === 'string' ? input : JSON.stringify(input ?? {})
@@ -133,28 +140,33 @@ function describeActivity(name: unknown, input: unknown): string {
     return m ? `exec: ${m[1]}` : 'exec'
   }
   if (tool === 'js' && typeof arg.title === 'string') return truncate(arg.title)
-  if (tool === 'request_user_input_async') return 'Waiting for user input'
-  return raw || 'Working'
+  if (tool === 'request_user_input_async') return t(lang, 'actWaitingInput')
+  return raw || t(lang, 'actWorking')
 }
 
 interface Task {
-  id: string; title: string; source: Source; state: ProgressEvent['state']; stage: number
+  id: string; title: string; fromAi: boolean; source: Source; state: ProgressEvent['state']; stage: number
   start: number; touched: number; progress: number; activities: number; notice: number; approvalSince?: number; requestId?: string; terminalApp?: string; activity?: string
 }
 
 export class TaskTracker {
   private tasks = new Map<string, Task>()
-  private pendingTitles = new Map<string, string>()
-  accept(key: string, source: Source, signal: Signal, now = Date.now()): void {
+  private terminal: { task: Task; until: number } | null = null
+  private pendingTitles = new Map<string, { title: string; fromAi: boolean }>()
+  /** Returns a terminal marker when this signal flips a task into a terminal state. */
+  accept(key: string, source: Source, signal: Signal, now = Date.now()): 'completed' | 'failed' | 'cancelled' | null {
     let task = this.tasks.get(key)
     if (signal.kind === 'title') {
-      if (task && ['running', 'waiting', 'approval'].includes(task.state)) task.title = signal.title ?? t(getLanguage(), 'agentTask')
-      else this.pendingTitles.set(key, signal.title ?? t(getLanguage(), 'agentTask'))
-      return
+      const entry = { title: signal.title ?? t(getLanguage(), 'agentTask'), fromAi: signal.fromAi ?? false }
+      if (task && ['running', 'waiting', 'approval'].includes(task.state)) { task.title = entry.title; task.fromAi = entry.fromAi }
+      else this.pendingTitles.set(key, entry)
+      return null
     }
     if (signal.kind === 'start') {
-      if (task?.id === signal.id) return
-      task = { id: signal.id ?? `${key}:${now}`, title: signal.title ?? this.pendingTitles.get(key) ?? t(getLanguage(), 'agentTask'), source, state: 'running', stage: 0,
+      if (task?.id === signal.id) return null
+      this.terminal = null // Only an explicit new task dismisses the previous result.
+      const pending = this.pendingTitles.get(key)
+      task = { id: signal.id ?? `${key}:${now}`, title: signal.title ?? pending?.title ?? t(getLanguage(), 'agentTask'), fromAi: signal.fromAi ?? pending?.fromAi ?? false, source, state: 'running', stage: 0,
         start: now, touched: now, progress: 0.02, activities: 0, notice: 0 }
       this.tasks.set(key, task)
       this.pendingTitles.delete(key)
@@ -165,49 +177,62 @@ export class TaskTracker {
           if (this.tasks.size <= 128) break
         }
       }
-      return
+      return null
     }
-    if (!task || !['running', 'waiting', 'approval'].includes(task.state)) return
-    if (signal.id && signal.id !== task.id) return
-    if (task.state === 'approval' && signal.kind === 'activity') return
+    if (!task || !['running', 'waiting', 'approval'].includes(task.state)) return null
+    if (signal.id && signal.id !== task.id) return null
+    if (task.state === 'approval' && signal.kind === 'activity') return null
     task.touched = now
     if (signal.kind === 'approval') {
       if (task.state !== 'approval') { task.notice++; task.approvalSince = now }
       task.state = 'approval'; task.requestId = signal.requestId
       if (signal.terminalApp) task.terminalApp = signal.terminalApp
-      return
+      return null
     }
     if (task.approvalSince !== undefined) {
       task.start += now - task.approvalSince
       task.approvalSince = undefined
     }
-    if (signal.kind === 'complete' || signal.kind === 'compact') { task.state = 'completed'; task.progress = 1 }
-    else if (signal.kind === 'fail') { task.state = 'failed'; task.notice++ }
-    else if (signal.kind === 'cancel') task.state = 'cancelled'
-    else {
-      task.state = 'running'
-      task.stage = Math.max(task.stage, signal.stage ?? task.stage)
-      task.activities++
-      if (signal.activity) task.activity = signal.activity
+    if (signal.kind === 'complete' || signal.kind === 'compact') {
+      task.state = 'completed'
+      task.progress = 1
+      // Keep completion visible until an explicit new task starts.
+      this.terminal = { task: { ...task }, until: Infinity }
+      return 'completed'
     }
+    if (signal.kind === 'fail') { task.state = 'failed'; task.notice++; this.terminal = { task: { ...task }, until: now + TERMINAL_GRACE_MS }; return 'failed' }
+    if (signal.kind === 'cancel') { task.state = 'cancelled'; this.terminal = { task: { ...task }, until: now + TERMINAL_GRACE_MS }; return 'cancelled' }
+    task.state = 'running'
+    task.stage = Math.max(task.stage, signal.stage ?? task.stage)
+    task.activities++
+    if (signal.activity) task.activity = signal.activity
+    return null
   }
 
-  hook(key: string, source: Source, signal: Signal, now = Date.now()): void {
+  hook(key: string, source: Source, signal: Signal, now = Date.now()): 'completed' | 'failed' | 'cancelled' | null {
     const matching = signal.id && [...this.tasks.entries()].find(([,t]) => t.source === source && t.id === signal.id)
     key = matching ? matching[0] : key
     if (!this.tasks.has(key)) {
-      if (signal.kind !== 'approval' && signal.kind !== 'fail') return
+      if (signal.kind !== 'approval' && signal.kind !== 'fail') return null
       this.accept(key, source, {kind: 'start', id: signal.id ?? key}, now)
     }
-    this.accept(key, source, signal, now)
+    return this.accept(key, source, signal, now)
   }
 
   snapshot(now = Date.now()): ProgressEvent | null {
+    // Drop tasks abandoned long ago so they don't resurface as phantom "waiting"
+    // tasks after other work completes (the "default/demo state" regression).
+    for (const [k, t] of this.tasks) {
+      if ((t.state === 'running' || t.state === 'waiting') && now - t.touched > STALE_TIMEOUT_MS) {
+        this.tasks.delete(k)
+      }
+    }
     const all = [...this.tasks.values()]
     const active = all.filter(t => ['running', 'waiting', 'approval'].includes(t.state))
     const approvals = active.filter(t => t.state === 'approval')
-    const newest = [...all].sort((a,b) => b.touched-a.touched)[0]
-    const task = approvals[0] ?? (newest?.state === 'failed' ? newest : (active.length ? active : all).sort((a, b) => b.touched - a.touched)[0])
+    const terminal = this.terminal && now < this.terminal.until ? this.terminal.task : null
+    // Priority: approval > recent terminal state > newest active task; otherwise idle.
+    const task = approvals[0] ?? terminal ?? (active.length ? active.sort((a, b) => b.touched - a.touched)[0] : null)
     if (!task) return null
     const lang = getLanguage()
     if (task.state === 'running' || task.state === 'waiting') {
@@ -228,9 +253,10 @@ export class TaskTracker {
       : t(lang, actKey)
     return {
       taskId: task.id, noticeId: `${task.id}:${task.notice}`,
-      source: task.source, activeCount: active.length > 1 ? active.length : undefined,
+      source: task.source,
       terminalApp: task.terminalApp,
       title: task.title,
+      titleFromAi: task.fromAi,
       state: task.state, progress: task.progress, stage: t(lang, stageKey), stageIndex: task.stage,
       activity: task.activity,
       etaSeconds: null, estimated: true,
@@ -242,6 +268,7 @@ export class TaskTracker {
 
   /** Drop terminal tasks so a baseline backfill surfaces only still-active work. */
   pruneTerminal(): void {
+    this.terminal = null
     for (const [k, t] of this.tasks) {
       if (['completed', 'failed', 'cancelled'].includes(t.state)) this.tasks.delete(k)
     }
@@ -256,9 +283,10 @@ export class AgentMonitor {
   private tracker = new TaskTracker()
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = false
-  private last = ''
+  // Start as "idle" (null) so a baseline poll with no active task doesn't emit.
+  private last = 'null'
   private startedAt = Date.now()
-  constructor(private listener: (event: ProgressEvent) => void,
+  constructor(private listener: (event: ProgressEvent | null) => void,
     private roots: [string, Source][] = [
       [join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions'), 'Codex'],
       [join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects'), 'Claude Code']
@@ -297,8 +325,11 @@ export class AgentMonitor {
       for (let end = data.indexOf(10); end !== -1; end = data.indexOf(10, from)) {
         try {
           const row = JSON.parse(data.subarray(from, end).toString('utf8'))
+          const ts = Date.parse(row.timestamp)
           const signal = parseSignal(source, row, getLanguage())
-          if (signal) this.tracker.accept(path, source, signal)
+          // Use the original timestamp so a long-dead "running" task is not
+          // resurrected as if it had just started.
+          if (signal) this.tracker.accept(path, source, signal, Number.isFinite(ts) ? ts : Date.now())
         } catch { /* partial/malformed record is not a lifecycle event */ }
         from = end + 1
       }
@@ -340,7 +371,9 @@ export class AgentMonitor {
                 // Ignore replayed history in newly copied/forked session files.
                 if (Date.parse(row.timestamp) >= this.startedAt) {
                   const signal = parseSignal(source, row, getLanguage())
-                  if (signal) this.tracker.accept(path, source, signal)
+                  // Flush a terminal transition immediately so a completion is not
+                  // hidden by a new task that starts within the same poll cycle.
+                  if (signal && this.tracker.accept(path, source, signal)) this.emit()
                 }
               } catch { /* partial/malformed record is not a lifecycle event */ }
               from = end + 1
@@ -353,10 +386,17 @@ export class AgentMonitor {
     if (baseline) this.tracker.pruneTerminal()
     for (const path of this.cursors.keys()) if (!seen.has(path)) this.cursors.delete(path)
     await this.readHooks()
+    this.emit()
+  }
+  /** Emit the current snapshot to the listener only when it changed since last emit. */
+  private emit(force = false): void {
     const snapshot = this.tracker.snapshot()
     const serialized = JSON.stringify(snapshot)
-    if (snapshot && serialized !== this.last) { this.last = serialized; this.listener(snapshot) }
+    // Emit the idle (null) transition too, so the renderer clears stale task text.
+    if (force || serialized !== this.last) { this.last = serialized; this.listener(snapshot) }
   }
+  /** Re-publish the authoritative snapshot on demand (e.g. after the demo ends). */
+  refresh(): void { this.emit(true) }
   private async readHooks(): Promise<void> {
     const dir = this.hookDirectory
     if (!dir) return
@@ -373,7 +413,7 @@ export class AgentMonitor {
       }
       for (const {file,row} of events.sort((a,b)=>a.row.timestamp-b.row.timestamp)) {
         if (['Codex','Claude Code'].includes(row.source) && ['approval','resume','cancel','fail'].includes(row.kind) && typeof row.path === 'string') {
-          this.tracker.hook(row.path, row.source, {kind:row.kind,id:row.id,requestId:row.requestId,terminalApp:row.terminalApp})
+          if (this.tracker.hook(row.path, row.source, {kind:row.kind,id:row.id,requestId:row.requestId,terminalApp:row.terminalApp})) this.emit()
         }
         await unlink(file)
       }

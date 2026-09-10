@@ -8,6 +8,7 @@ const pause = ms => new Promise(r=>setTimeout(r,ms))
 app.whenReady().then(async()=>{
   try {
     const win=new BrowserWindow({width:86,height:43,show:false,frame:false,transparent:true,webPreferences:{preload:path.join(root,'out/preload/index.js'),autoplayPolicy:'no-user-gesture-required'}})
+    ipcMain.handle('widget:pointer-inside',()=>true)
     ipcMain.handle('agent:get-progress',()=>null)
     ipcMain.handle('settings:get',()=>({soundEnabled:false,theme:'monochrome-lime',appearance:'dark',notifyEnabled:false,language:'en'}))
     ipcMain.on('widget:mode',(_,mode)=>win.setSize(sizes[mode].width,sizes[mode].height))

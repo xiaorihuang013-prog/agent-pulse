@@ -2,6 +2,23 @@
 """Notification-only hook. Never emits approval decisions or changes Agent behavior."""
 import json, os, pathlib, sys, time, uuid
 
+def terminal_app():
+    """Identify the terminal that hosts this agent, so the approval click can focus it.
+
+    VS Code forks (Cursor) all report $TERM_PROGRAM='vscode', so the plain value is
+    ambiguous. The fork injects an askpass path under its own app bundle, which is a
+    reliable fingerprint: Cursor.app vs Visual Studio Code.app.
+    """
+    tp = os.environ.get('TERM_PROGRAM')
+    if tp == 'vscode':
+        for key in ('GIT_ASKPASS', 'VSCODE_GIT_ASKPASS_MAIN', 'VSCODE_GIT_ASKPASS_NODE'):
+            val = os.environ.get(key) or ''
+            if 'Cursor.app' in val:
+                return 'Cursor'
+            if 'Visual Studio Code.app' in val:
+                return 'vscode'
+    return tp
+
 def main():
     row = json.load(sys.stdin)
     source = sys.argv[1]
@@ -23,7 +40,7 @@ def main():
     payload = {'source': source, 'kind': kind, 'timestamp': time.time() * 1000,
                'path': row.get('transcript_path'), 'id': row.get('turn_id'),
                'requestId': row.get('tool_use_id') or row.get('tool_name') or 'permission',
-               'terminalApp': os.environ.get('TERM_PROGRAM')}
+               'terminalApp': terminal_app()}
     name = str(uuid.uuid4())
     tmp = dest / (name + '.tmp')
     tmp.write_text(json.dumps(payload), encoding='utf-8')

@@ -3,7 +3,7 @@ const path=require('node:path'),fs=require('node:fs'),assert=require('node:asser
 const pause=ms=>new Promise(r=>setTimeout(r,ms)),root=path.resolve(__dirname,'..')
 app.whenReady().then(async()=>{
  try {
-  const win=new BrowserWindow({width:84,height:84,frame:false,transparent:true,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'out/preload/index.js')}})
+  const win=new BrowserWindow({width:86,height:43,frame:false,transparent:true,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'out/preload/index.js')}})
   ipcMain.handle('agent:get-progress',()=>null)
   ipcMain.handle('settings:get',()=>({soundEnabled:true,theme:'monochrome-lime',appearance:'dark',notifyEnabled:false,language:'en'}))
   ipcMain.on('widget:mode',(_,m)=>{const n={compact:[86,43],expanded:[200,200],approval:[140,140],failed:[140,140],completed:[104,104]}[m];win.setSize(n[0],n[1])})

@@ -177,12 +177,13 @@ body,
 }
 
 .glyph--pause,
-.glyph--done {
-  color: var(--accent);
-}
-
 .glyph--cancelled {
   color: var(--danger);
+}
+
+.glyph--idle {
+  color: var(--secondary);
+  opacity: 0.55;
 }
 
 .dotloader {
@@ -486,13 +487,6 @@ body,
   font-size: 12px;
   color: var(--primary);
   letter-spacing: 0.04em;
-}
-
-.m-message {
-  font-size: 11px;
-  color: var(--secondary);
-  min-height: 14px;
-  line-height: 1.4;
 }
 
 .m-activity {

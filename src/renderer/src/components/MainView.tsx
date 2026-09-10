@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Appearance, ProgressEvent } from '@shared/types'
 import type { Lang } from '@shared/i18n'
 import { t, stateLabel } from '@shared/i18n'
+import { localizeProgress } from '@shared/progressText'
 import { useElapsedTime } from '../hooks/useElapsedTime'
 import { formatElapsed, formatEta } from '../lib/format'
 import { HairlineProgress } from './HairlineProgress'
@@ -22,10 +23,11 @@ export function MainView({
   setAppearance: (a: Appearance) => void
   lang: Lang
 }) {
-  const [event, setEvent] = useState<ProgressEvent | null>(null)
+  const [rawEvent, setEvent] = useState<ProgressEvent | null>(null)
 
   useEffect(() => window.agentPulse.onProgress(setEvent), [])
 
+  const event = localizeProgress(rawEvent, lang)
   const state = event?.state ?? 'queued'
   const active = state === 'running' || state === 'waiting' || state === 'paused'
   const elapsedMs = useElapsedTime(event?.startedAt, active)
@@ -41,7 +43,7 @@ export function MainView({
       </div>
       <div className="m-metrics">
         <div className="m-metric">
-          <div className="m-metric__value">{pct}%</div>
+          <div className="m-metric__value">{event?.estimated ? t(lang, 'estimated') : ''}{pct}%</div>
           <div className="m-metric__label">{t(lang, 'metricPercent')}</div>
         </div>
         <div className="m-metric">
@@ -53,11 +55,11 @@ export function MainView({
           <div className="m-metric__label">{t(lang, 'metricEta')}</div>
         </div>
       </div>
-      <div className="m-stage">{event?.stage ?? '—'}</div>
+      <div className="m-stage">{event?.estimated ? t(lang, 'estimated') : ''}{event?.stage ?? '—'}</div>
       <div className="m-activity">{event?.activity ?? event?.message ?? ''}</div>
       <div className="m-state">
         {event
-          ? `${stateLabel(lang, event.state)}${event.source ? ` · ${event.source}` : ''}${event.activeCount && event.activeCount > 1 ? t(lang, 'tasksRunning', { n: event.activeCount }) : ''}`
+          ? `${stateLabel(lang, event.state)}${event.source ? ` · ${event.source}` : ''}`
           : t(lang, 'idle')}
       </div>
       <div className="m-appearance" role="group" aria-label={t(lang, 'appearance')}>

@@ -1,53 +1,147 @@
 # Agent Pulse
 
-macOS 菜单栏常驻的 Agent 任务进度组件，支持本机 **Claude Code 和 Codex（CLI / 写入本机会话日志的桌面任务）**。
+**macOS 菜单栏 AI 任务进度组件** —— 一个悬浮在桌面角落的 OS 级小组件，实时显示 Codex 与 Claude Code 长任务的耗时、进度与当前动作，并在任务完成、等待批准、失败时提醒你。
 
-## 自动激活
+> An OS-level floating progress widget for long-running AI agent tasks on macOS.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+## 它能做什么
+
+把跑在终端里的 AI Agent 任务状态，变成一个悬浮在桌面上的小卡片：
+
+- **实时进度**：增量读取本机 `~/.codex/sessions` 与 `~/.claude/projects` 的 JSONL 日志，识别任务的生命周期事件（开始、当前动作、完成、失败、取消、待批准）。
+- **一眼看懂**：紧缩卡片显示耗时；悬停展开显示任务摘要、预估进度、当前活动与剩余时间。
+- **到点提醒**：任务完成、需要批准、失败时，播放独立音效并弹出系统通知（均可关闭）。
+- **一键回到现场**：点击完成 / 待批准 / 失败卡片，直接唤起对应应用——Codex 桌面版，或正在运行 Claude Code 的终端（iTerm2、Terminal、Warp、WezTerm、ghostty、VS Code、Cursor）。
+- **双语与外观**：中 / 英文切换；深色 / 浅色 / 自动三种外观（“自动”与系统明暗反向，保证卡片在桌面上始终醒目）。
+- **后台常驻**：通过 macOS LaunchAgent 注册登录自启，无 Dock 图标，像系统组件一样安静运行。
+
+## 界面一览
+
+| 状态 | 尺寸（宽 × 高） | 说明 |
+|---|---|---|
+| 紧缩 | 86 × 43 | 横向胶囊，只显示耗时与细进度条 |
+| 展开 | 200 × 200 | 任务标题、进度、阶段、当前动作、剩余时间 |
+| 完成 | 104 × 104 | ✓ 动画定格，点击回到 Agent |
+| 待批准 | 140 × 140 | `!` 提示返回 Agent 批准，优先于其它状态 |
+| 失败 | 140 × 140 | × 独立音效与动画，显示错误摘要 |
+
+- 新任务开始时自动展开 3 秒后收起；悬停展开、移开收起，支持拖动定位。
+- 空闲时卡片隐藏，菜单栏可手动显示 / 隐藏。
+
+## 环境要求
+
+- **macOS**（菜单栏、LaunchAgent、`open -b` 等能力仅限 macOS）
+- **Node.js 20+**（仅开发 / 从源码安装时需要）
+- 本机运行的 **Codex** 或 **Claude Code** 会话
+
+## 安装
 
 ```sh
 npm install
 npm run background:install
 ```
 
-这会构建并注册当前用户的 `com.eightsuns.agent-pulse` LaunchAgent，立即运行并在登录后自动启动。项目目录及 node_modules 需保留。更新后重新执行安装命令加载新版本。菜单栏 Quit 可退出当前运行；下次登录会重新启动。
+安装命令会先构建，然后启动组件并注册当前用户的登录自启服务（LaunchAgent）。
 
-- 空闲时仅显示 16 点白色菜单栏图标，不自动播放演示。
-- 监听 `~/.codex/sessions` 和 `~/.claude/projects` 下新增的本地 JSONL 记录（也支持 CODEX_HOME / CLAUDE_CONFIG_DIR 环境变量）。不上传、不保存任务正文，不修改 Agent 配置。
-- Codex 收到 `task_started`，或 Claude Code 写入用户提交消息时，自动显示数字卡片。
-- 工具结果、子代理日志不作为新用户任务；启动时跳过已有历史，从启动后的新任务开始监听。
-- Codex `task_complete` / Claude `end_turn` 才触发完成；取消与 API 错误不播放成功动画。
-- 完成时提示音 + 发光对勾弹出 + Complete 淡入，之后定格，不回到 100%。
-- 同时有多个任务时优先显示仍在运行的任务，标题标注数量；全部结束后显示最后结束任务的状态。
-- 长时间没有新事件显示等待，不把无输出、Agent 崩溃或进程退出当成完成。
+- 请保留项目目录与 `node_modules`；升级后重新执行安装命令即可。
+- 卸载登录自启：`npm run background:uninstall`。
 
-卸载后台启动：`npm run background:uninstall`。
-开发：`npm run dev`；仅构建：`npm run build`；回归检查：`npm test`。
-手动演示保留在菜单栏 Run Demo Task。
+## 待批准提醒（可选）
 
-## 进度是估算值
+Agent 处于“等待批准”时，组件需要额外配置才能在第一时间感知：
 
-通用 Agent 不提供可靠的“总工作量”。组件结合事件类型、工具活动次数及活跃耗时估算，展开画面明确标记“预估”。阶段权重为理解 10%、收集 20%、执行 50%、检查 15%，最后 5% 保留到真实完成事件。估算单调递增、运行中最多 95%，不使用计时器假装完成，不给出虚构的 ETA。
+```sh
+node scripts/install-alert-hooks.cjs
+```
 
-## 视觉与交互
+- 该命令向 Codex 的 `hooks.json` 和 Claude Code 的 `settings.json` 注入**仅通知**的 hook，绝不代替你批准。
+- 已有配置会被自动备份并原样保留；Codex 需通过自身的 hooks 信任流程启用，Claude Code 在下次新会话验证加载。
 
-所有窗口状态均为圆角正方形：普通 84×84，展开 200×200，完成 104×104，错误 200×200。中心纯黑，柔光和磨砂质感限制在内部边缘，无外部透明 padding 或发光扩展。点阵数字与百分号大小一致。菜单栏图标独立绘制 1x / 2x 白色版本，不做模糊处理。
+## 使用
 
-悬停展开；拖拽移动；点击打开状态窗口；Sound 控制提示音。
+所有控制都集中在菜单栏图标里：
 
-## 兼容范围与限制
+| 菜单项 | 作用 |
+|---|---|
+| 显示 / 隐藏组件 | 手动开关悬浮卡片 |
+| 打开详情窗口 | 查看当前任务的进度 %、耗时、剩余、阶段与动作 |
+| 运行演示任务 | 手动触发一个示例任务（用于预览与测试） |
+| 暂停 / 继续 / 取消 / 模拟失败 | 仅作用于演示任务 |
+| 外观 | 深色 / 浅色 / 自动 |
+| 语言 | English / 中文 |
+| 声音 / 通知 | 独立开关 |
+| 退出 | 结束进程 |
 
-日志适配器已依据本机日志结构实现，这些文件不是稳定公共 API；升级 Agent 后若格式改变需更新适配器。仅支持此电脑上写入上述路径的会话；远程云端、无日志模式和其他 Agent 尚未接入。监听服务启动前已经进行中的任务不会追溯提示，以避免把旧历史误报为新任务。静默授权等待只能显示通用等待状态。
+交互细节：
 
-官方事件机制参考：[Codex Hooks](https://developers.openai.com/codex/hooks)、[Claude Code Hooks](https://code.claude.com/docs/en/hooks)。本版本使用本地日志适配，无需安装 hooks。
+- **点击卡片**：完成 / 待批准 / 失败状态唤起对应应用；其它状态打开详情窗口。
+- **展开卡片右上角**：点按可循环切换外观。
 
+## 如何工作
 
-## 手动批准与失败提醒
+```
+┌─────────────┐   JSONL 增量读取   ┌────────────────────┐
+│ ~/.codex/    │ ────────────────▶ │  AgentMonitor       │
+│ ~/.claude/   │   解析生命周期信号  │  (主进程)           │
+└─────────────┘                    │  start / activity / │
+                                   │  complete / fail /  │
+                                   │  approval ...       │
+                                   └─────────┬───────────┘
+                                             │ IPC（进度 / 设置）
+                                   ┌─────────▼───────────┐
+                                   │  React 渲染层        │
+                                   │  Widget / 详情窗口   │
+                                   └─────────────────────┘
+```
 
-执行 `node scripts/install-alert-hooks.cjs` 为 Codex / Claude Code 添加只通知、不批准也不拒绝的 hooks，既有 hooks 原样保留并备份。Codex 的新增 hooks 必须通过自身信任流程（CLI `/hooks`）审阅启用；Claude Code 建议在新会话中验证加载。
+- **主进程** `src/main/agentMonitor.ts` 增量轮询日志文件（跳过历史、处理 UTF-8 拆行、发现新文件），识别任务生命周期信号。
+- **渲染层** `src/renderer/` 是 React 组件，通过 preload 暴露的 `window.agentPulse` 接口收发进度与设置。
+- **共享契约** `src/shared/` 定义类型、双语字符串、尺寸与主题，主进程 / preload / 渲染层共用。
 
-批准：琥珀色呼吸图标 + 三声提示，文字提示回到对应 Agent。进度暂停，重复事件不重复响铃。普通等待不触发批准提示。
-失败：红色叉号轻晃 + 三音下降提示，随后定格。全局 Sound 开关同时控制成功、批准、失败音效。
+几个关键行为：
 
-Claude Code 使用 PermissionRequest / permission_prompt 通知，以及 StopFailure 失败通知；PostToolUse / Stop 清除批准等待。Codex 使用 PermissionRequest / PostToolUse / Stop / Interrupt，终止错误由 `error` 且 `will_retry: false` 的日志事件识别。单个工具失败、可重试错误不等于任务失败。Codex 版本若不写终止错误日志，则无法仅凭静默可靠识别失败。
+- **进度是本地估算**：按“理解 → 收集 → 执行 → 检查”四阶段推进，运行中最高 95%；只有明确的结束事件才标记完成。单个工具失败或可重试错误不算任务失败。
+- **完成态保持**：完成后卡片定格，直到明确的新任务开始；普通工具活动不会被误判为“新任务”。
+- **任务摘要本地生成**：通过本地规则 + 关键词把提示词压缩成简短标题（如“生成市场报告”），不调用任何 API、不上传任务正文。
+- **hooks 队列只存事件**：仅保存事件与关联标识，读取后即删除。
 
-通知队列只在本机保存事件类型与关联标识，不保存命令或任务正文。事件由后台组件读取后删除。动画与提示音可用 `scripts/verify-alerts.cjs` 做离屏验证。
+## 开发
+
+```sh
+npm install          # 安装依赖
+npm run dev          # 开发运行（热更新）
+npm test             # 单元测试（解析 / 状态 / 标题 / 应用路由）
+npm run build        # 类型检查 + 构建
+npm run test:ui      # 静态验证尺寸、详情按钮、音效、展开收起与卡片点击
+```
+
+窗口交互验证需要 macOS 图形会话，测试不会真正打开 Agent 应用。
+
+## 项目结构
+
+```
+src/
+├── main/            # Electron 主进程：日志解析、托盘、窗口、打开 Agent、设置持久化
+│   └── agentMonitor.ts   # 核心：日志增量轮询与生命周期信号识别
+├── preload/         # contextBridge 暴露 window.agentPulse
+├── renderer/        # React：Widget 卡片、详情窗口、样式、hooks、音效
+│   └── src/components/   # Widget.tsx / MainView.tsx / HairlineProgress.tsx
+└── shared/          # 类型、i18n、尺寸、主题、任务摘要（三进程共享）
+scripts/             # 登录自启、hooks 安装、通知、各类验证脚本
+tests/               # 单元测试（node --test）
+```
+
+更细的维护索引见 [TASK_PLAN.md](TASK_PLAN.md)。
+
+## 隐私与局限
+
+- **全部本地运行**：不联网、不收集，任务正文从不上传。
+- 仅支持写入上述日志路径的**本机会话**；远程、静默或无日志的任务无法可靠判断完成。
+- 日志格式变化可能需要更新适配器。
+- 点击唤起应用时，不保证定位到具体的会话或终端标签页。
+
+## License
+
+[MIT](LICENSE)

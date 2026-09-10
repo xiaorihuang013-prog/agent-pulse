@@ -7,7 +7,7 @@ const api: AgentPulseApi = {
   onProgress(cb) {
     let receivedLive = false
     let disposed = false
-    const listener = (_e: Electron.IpcRendererEvent, event: ProgressEvent): void => {
+    const listener = (_e: Electron.IpcRendererEvent, event: ProgressEvent | null): void => {
       receivedLive = true
       cb(event)
     }
@@ -33,6 +33,9 @@ const api: AgentPulseApi = {
   },
   notify(title: string, body: string) {
     ipcRenderer.send('app:notify', title, body)
+  },
+  isPointerInside() {
+    return ipcRenderer.invoke('widget:pointer-inside')
   },
   setMode(mode: WidgetMode) {
     ipcRenderer.send('widget:mode', mode)

@@ -5,7 +5,7 @@ import type { ProgressEvent } from '../shared/types'
 import { registerIpc } from './ipc'
 import { loadSettings } from './settings'
 import { createTray } from './tray'
-import { createWidgetWindow, getMainWindow, getWidget } from './windows'
+import { createWidgetWindow, getMainWindow, getWidget, hideWidget } from './windows'
 import { focusAgentTerminal, logOpenAgent } from './openAgent'
 
 const agent = new MockAgent()
@@ -24,7 +24,7 @@ if (!gotLock) {
     if (process.platform === 'darwin') app.dock?.hide()
 
     loadSettings()
-    registerIpc(agent)
+    registerIpc()
 
     createWidgetWindow()
     createTray(agent)
@@ -33,20 +33,35 @@ if (!gotLock) {
     ipcMain.handle('agent:get-progress', () => latest)
     ipcMain.on('agent:open', () => {
       logOpenAgent(`agent:open latest.terminalApp=${latest?.terminalApp ?? '<none>'}`)
-      focusAgentTerminal(latest?.terminalApp)
+      focusAgentTerminal(latest?.terminalApp, latest?.source)
     })
-    const publish = (e: ProgressEvent): void => {
+    const publish = (e: ProgressEvent | null): void => {
+      if (!e) {
+        latest = null
+        getWidget()?.webContents.send('agent:progress', null)
+        getMainWindow()?.webContents.send('agent:progress', null)
+        // No task running: hide the widget (it reappears on the next task).
+        hideWidget()
+        return
+      }
       const newTask = !latest || e.taskId !== latest.taskId || (e.state === 'running' && !['running', 'waiting'].includes(latest.state))
       latest = e
       if (newTask || e.state === 'completed' || e.state === 'failed' || e.state === 'approval') getWidget()?.showInactive()
       getWidget()?.webContents.send('agent:progress', e)
       getMainWindow()?.webContents.send('agent:progress', e)
     }
-    agent.onProgress(publish)
+    const monitor = new AgentMonitor(publish)
+    agent.onProgress((e) => {
+      publish(e)
+      // The demo is a manual test: once it ends, hand control back to the real
+      // monitor so its authoritative snapshot (idle or a live task) replaces it.
+      if (e.state === 'completed' || e.state === 'failed' || e.state === 'cancelled') {
+        setTimeout(() => monitor.refresh(), 0)
+      }
+    })
     getWidget()?.webContents.on('did-finish-load', () => {
       if (latest) getWidget()?.webContents.send('agent:progress', latest)
     })
-    const monitor = new AgentMonitor(publish)
     void monitor.start()
     app.on('before-quit', () => monitor.stop())
 

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
-import type { MouseEvent } from 'react'
+import { useEffect, useRef } from 'react'
 import type { Appearance, ProgressEvent, TaskState } from '@shared/types'
 import type { Lang } from '@shared/i18n'
 import { t } from '@shared/i18n'
+import { localizeProgress } from '@shared/progressText'
 import type { WidgetMode } from '@shared/layout'
 import { useDrag } from '../hooks/useDrag'
+import { useWidgetExpansion } from '../hooks/useWidgetExpansion'
 import { useElapsedTime } from '../hooks/useElapsedTime'
 import { formatElapsed, formatEta } from '../lib/format'
 import { playAlertSound } from '../lib/sound'
@@ -13,7 +14,7 @@ import { HairlineProgress } from './HairlineProgress'
 const APPEARANCE_ORDER: Appearance[] = ['auto', 'dark', 'light']
 
 export function Widget({
-  event,
+  event: rawEvent,
   soundEnabled,
   notifyEnabled,
   lang,
@@ -27,20 +28,15 @@ export function Widget({
   appearance: Appearance
   setAppearance: (a: Appearance) => void
 }) {
+  const event = localizeProgress(rawEvent, lang)
+  const idle = event == null
   const state: TaskState = event?.state ?? 'queued'
   const startedAt = event?.startedAt
-
-  const [hovered, setHovered] = useState(false)
-  const [autoExpanded, setAutoExpanded] = useState(false)
-  const autoExpandTimer = useRef<number | null>(null)
-  const prevActiveRef = useRef(false)
 
   const heardAlerts = useRef(new Set<string>())
   const soundRef = useRef(soundEnabled)
   const notifyRef = useRef(notifyEnabled)
   const langRef = useRef(lang)
-  const expandTimer = useRef<number | null>(null)
-  const collapseTimer = useRef<number | null>(null)
 
   useEffect(() => {
     soundRef.current = soundEnabled
@@ -75,59 +71,22 @@ export function Widget({
     }
   }, [state, event?.taskId, event?.noticeId, event?.title])
 
-  // Auto-expand for 3s when a task starts; hover behavior is unchanged.
-  useEffect(() => {
-    const isActive = state === 'running' || state === 'waiting' || state === 'paused'
-    if (isActive && !prevActiveRef.current) {
-      setAutoExpanded(true)
-      if (autoExpandTimer.current) window.clearTimeout(autoExpandTimer.current)
-      autoExpandTimer.current = window.setTimeout(() => setAutoExpanded(false), 3000)
-    }
-    prevActiveRef.current = isActive
-  }, [state])
-
-  useEffect(() => () => {
-    if (autoExpandTimer.current) window.clearTimeout(autoExpandTimer.current)
-  }, [])
-
   const active = state === 'running' || state === 'waiting' || state === 'paused'
+  const { expanded, onMouseEnter, onMouseLeave } = useWidgetExpansion(
+    active, event ? `${event.source ?? 'demo'}:${event.taskId ?? event.startedAt ?? 'task'}` : null
+  )
   const elapsedMs = useElapsedTime(startedAt, active)
   const elapsed = elapsedMs != null ? formatElapsed(elapsedMs) : '--:--'
 
   const mode: WidgetMode =
-    state === 'approval' ? 'approval' : state === 'failed' ? 'failed' : state === 'completed' ? 'completed' : (hovered || autoExpanded) ? 'expanded' : 'compact'
+    state === 'approval' ? 'approval' : state === 'failed' ? 'failed' : state === 'completed' ? 'completed' : expanded ? 'expanded' : 'compact'
 
   useEffect(() => {
     window.agentPulse.setMode(mode)
   }, [mode])
 
-  const onMouseEnter = (e: MouseEvent<HTMLDivElement>): void => {
-    if (e.buttons !== 0) return // don't expand mid-drag
-    if (collapseTimer.current) {
-      window.clearTimeout(collapseTimer.current)
-      collapseTimer.current = null
-    }
-    if (expandTimer.current) return
-    expandTimer.current = window.setTimeout(() => {
-      setHovered(true)
-      expandTimer.current = null
-    }, 140)
-  }
-
-  const onMouseLeave = (): void => {
-    if (expandTimer.current) {
-      window.clearTimeout(expandTimer.current)
-      expandTimer.current = null
-    }
-    if (collapseTimer.current) return
-    collapseTimer.current = window.setTimeout(() => {
-      setHovered(false)
-      collapseTimer.current = null
-    }, 120)
-  }
-
   const drag = useDrag(() => {
-    if (state === 'approval') window.agentPulse.openAgent()
+    if (state === 'approval' || state === 'completed' || state === 'failed') window.agentPulse.openAgent()
     else window.agentPulse.openMain()
   })
 
@@ -144,7 +103,7 @@ export function Widget({
       onMouseLeave={onMouseLeave}
       onPointerDown={drag.onPointerDown}
     >
-      <div className="widget__card" key={`${mode === 'approval' || mode === 'failed' ? event?.noticeId ?? event?.taskId ?? mode : 'normal'}`}>
+      <div className="widget__card" key={`${mode === 'approval' || mode === 'failed' || mode === 'completed' ? event?.noticeId ?? event?.taskId ?? mode : 'normal'}`}>
         {mode === 'approval' ? (
           <ApprovalView agent={event?.source ?? 'Agent'} lang={lang} />
         ) : mode === 'completed' ? (
@@ -154,18 +113,18 @@ export function Widget({
         ) : (
           <>
             <div className="widget__head">
-              <span className="widget__time">{elapsed}</span>
-              <StatusGlyph state={state} />
+              <span className="widget__time">{idle ? '—' : elapsed}</span>
+              <StatusGlyph state={idle ? 'idle' : state} />
             </div>
             <div className="widget__body">
-              <div className="widget__title">{event?.title ?? t(lang, 'agentTask')}</div>
-              <HairlineProgress target={event?.progress ?? 0} />
+              <div className="widget__title">{idle ? '—' : event?.title ?? t(lang, 'agentTask')}</div>
+              <HairlineProgress target={idle ? 0 : event?.progress ?? 0} />
               <div className="widget__meta">
-                <span className="widget__stage">{event?.estimated ? t(lang, 'estimated') : ''}{event?.stage ?? '—'}</span>
+                <span className="widget__stage">{idle ? '—' : `${event?.estimated ? t(lang, 'estimated') : ''}${event?.stage ?? '—'}`}</span>
                 <span className="widget__eta">{formatEta(event, lang)}</span>
               </div>
               <div className="widget__message">
-                <span>{event?.activity ?? event?.message ?? ''}</span>
+                <span>{idle ? '' : event?.activity ?? event?.message ?? ''}</span>
               </div>
             </div>
           </>
@@ -179,7 +138,7 @@ export function Widget({
           <button
             type="button"
             className="widget__theme"
-            aria-label={`${t(lang, 'appearance')}: ${appearance}`}
+            aria-label={`${t(lang, 'appearance')}: ${t(lang, appearance === 'auto' ? 'appearanceAuto' : appearance === 'dark' ? 'appearanceDark' : 'appearanceLight')}`}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
@@ -194,10 +153,10 @@ export function Widget({
   )
 }
 
-function StatusGlyph({ state }: { state: TaskState }) {
+function StatusGlyph({ state }: { state: TaskState | 'idle' }) {
+  if (state === 'idle') return <span className="glyph glyph--idle">—</span>
   if (state === 'paused') return <span className="glyph glyph--pause">‖</span>
   if (state === 'waiting') return <DotLoader className="glyph glyph--loader" />
-  if (state === 'completed') return <span className="glyph glyph--done">✓</span>
   if (state === 'cancelled') return <span className="glyph glyph--cancelled">✕</span>
   if (state === 'queued') return <span className="glyph glyph--queued">…</span>
   return null

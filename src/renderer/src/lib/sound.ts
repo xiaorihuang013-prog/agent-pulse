@@ -30,5 +30,3 @@ export function playAlertSound(tone: AlertTone, enabled: boolean): void {
     } catch { /* audio is unavailable */ }
   })()
 }
-
-export function playCompletionSound(enabled: boolean): void { playAlertSound('completed', enabled) }

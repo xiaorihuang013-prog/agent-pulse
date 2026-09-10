@@ -37,8 +37,8 @@ test('a compact signal completes an active task instead of leaving a phantom run
   assert.equal(t.snapshot(2000).progress,1)
 })
 test('ai-title and agent-name supply a specific task title', () => {
-  assert.deepEqual(parseSignal('Claude Code', {type:'ai-title', aiTitle:'上传agent pulse版本至git'}), {kind:'title', title:'上传agent pulse版本至git'})
-  assert.deepEqual(parseSignal('Claude Code', {type:'agent-name', agentName:'refactor-agent-pulse-ux'}), {kind:'title', title:'refactor-agent-pulse-ux'})
+  assert.deepEqual(parseSignal('Claude Code', {type:'ai-title', aiTitle:'上传agent pulse版本至git'}), {kind:'title', title:'上传agent pulse版本至git', fromAi:true})
+  assert.deepEqual(parseSignal('Claude Code', {type:'agent-name', agentName:'refactor-agent-pulse-ux'}), {kind:'title', title:'refactor-agent-pulse-ux', fromAi:true})
 })
 test('tool calls yield a human-readable activity step', () => {
   const bash = parseSignal('Claude Code', {type:'assistant', message:{stop_reason:'tool_use', content:[{type:'tool_use', name:'Bash', input:{description:'run the test suite', command:'npm test'}}]}})
@@ -62,6 +62,7 @@ test('terminal bundle resolves $TERM_PROGRAM and falls back to Terminal', () => 
   const { terminalBundle } = require('../src/main/openAgent.ts')
   assert.equal(terminalBundle('iTerm.app'), 'com.googlecode.iterm2')
   assert.equal(terminalBundle('vscode'), 'com.microsoft.VSCode')
+  assert.equal(terminalBundle('Cursor'), 'com.todesktop.230313mzl4w4u92')
   assert.equal(terminalBundle('Apple_Terminal'), 'com.apple.Terminal')
   assert.equal(terminalBundle('WarpTerminal'), 'dev.warp.Warp-Stable')
   assert.equal(terminalBundle('WezTerm'), 'org.wezfurlong.wezterm')
@@ -76,23 +77,29 @@ test('estimated progress is monotonic, bounded, and never completes from elapsed
     t.accept('a','Codex',{kind:'activity',stage:i%4},i*1000)
     const s=t.snapshot(i*1000);assert.ok(s.progress>=last && s.progress<=.95);last=s.progress
   }
-  assert.equal(t.snapshot(99999999).state,'waiting')
-  t.accept('a','Codex',{kind:'complete',id:'wrong'},99999999)
-  assert.notEqual(t.snapshot(99999999).state,'completed')
-  t.accept('a','Codex',{kind:'complete',id:'1'},99999999)
-  assert.equal(t.snapshot(99999999).progress,1)
-  assert.equal(t.snapshot(999999999).state,'completed')
+  assert.equal(t.snapshot(200000).state,'waiting')
+  t.accept('a','Codex',{kind:'complete',id:'wrong'},200000)
+  assert.notEqual(t.snapshot(200000).state,'completed')
+  t.accept('a','Codex',{kind:'complete',id:'1'},200000)
+  assert.equal(t.snapshot(200000).progress,1)
+  assert.equal(t.snapshot(999999999).state, 'completed')
 })
-test('concurrent sessions do not declare all work complete early, and new tasks reset progress', () => {
+test('completion stays pinned until an explicit new task starts', () => {
   const t=new TaskTracker()
   t.accept('a','Codex',{kind:'start',id:'1'},10)
   t.accept('b','Claude Code',{kind:'start',id:'2'},20)
   t.accept('a','Codex',{kind:'complete',id:'1'},30)
-  assert.equal(t.snapshot(30).taskId,'2')
+  assert.equal(t.snapshot(30).taskId,'1')
+  assert.equal(t.snapshot(30).state,'completed')
+  assert.equal(t.snapshot(30031).taskId,'1')
+  t.accept('b','Claude Code',{kind:'activity',stage:2},30032)
+  assert.equal(t.snapshot(30033).taskId,'1')
   t.accept('b','Claude Code',{kind:'complete'},40)
   assert.equal(t.snapshot(40).state,'completed')
   t.accept('b','Claude Code',{kind:'start',id:'3'},50)
-  assert.equal(t.snapshot(50).progress,.02)
+  assert.equal(t.snapshot(50).taskId,'3')
+  assert.equal(t.snapshot(30041).taskId,'3')
+  assert.ok(t.snapshot(30041).progress < 1)
 })
 test('incremental reader skips history, handles split UTF-8, discovers new files and freezes completion', async () => {
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pulse-test-'));const file=path.join(dir,'session.jsonl')
@@ -110,6 +117,28 @@ test('incremental reader skips history, handles split UTF-8, discovers new files
   } finally { m.stop();fs.rmSync(dir,{recursive:true,force:true}) }
 })
 
+test('a completion and a new task in one poll both emit (no hidden completion)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-flush-'))
+  const file = path.join(dir, 'session.jsonl')
+  const ts = (n) => new Date(Date.now() + n).toISOString()
+  const row = (type, id = 't') => JSON.stringify({ timestamp: ts(1), type: 'event_msg', payload: { type, turn_id: id } }) + '\n'
+  fs.writeFileSync(file, row('task_started', 't1'))
+  const events = []
+  const m = new AgentMonitor(e => events.push(e), [[dir, 'Codex']], null)
+  try {
+    await m.poll(true)
+    assert.equal(events.length, 1)
+    assert.equal(events[0].state, 'running')
+    // complete the current task and start the next one within a single append
+    fs.appendFileSync(file, row('task_complete', 't1') + row('task_started', 't2'))
+    await m.poll()
+    const states = events.map(e => e.state)
+    assert.ok(states.includes('completed'), `completed snapshot emitted, got ${states}`)
+    assert.equal(events.at(-1).state, 'running')
+    assert.equal(events.at(-1).taskId, 't2')
+  } finally { m.stop(); fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
 test('baseline backfills in-progress tasks and drops completed ones', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-backfill-'))
   const ts = (n) => new Date(Date.now() - 60000 + n).toISOString()
@@ -122,25 +151,34 @@ test('baseline backfills in-progress tasks and drops completed ones', async () =
     await m.poll(true)
     assert.equal(events.length, 1)
     assert.equal(events[0].state, 'running')
-    assert.equal(events[0].title, 'Generate Market Report')
+    assert.equal(events[0].title, 'Market Report')
     assert.equal(events[0].source, 'Codex')
   } finally { m.stop(); fs.rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('English task titles follow the prompt and remain available after completion', () => {
+test('task titles are summarized and remain available after completion', () => {
   const {taskTitleFromPrompt}=require('../src/main/taskTitle.ts')
-  assert.equal(taskTitleFromPrompt('帮我抓取某市场信息'),'Fetch Market Information')
-  assert.equal(taskTitleFromPrompt('生成市场报告'),'Generate Market Report')
+  assert.equal(taskTitleFromPrompt('帮我抓取某市场信息'),'Fetch Markets')
+  assert.equal(taskTitleFromPrompt('生成市场报告'),'Market Report')
   assert.equal(taskTitleFromPrompt('优化按钮hover样式'),'Refine Interface')
+  assert.equal(taskTitleFromPrompt(''), 'Agent Task')
   const t=new TaskTracker()
   t.accept('a','Codex',{kind:'start',id:'1'},0)
   t.accept('a','Codex',parseSignal('Codex',{type:'event_msg',payload:{type:'user_message',message:'生成市场报告'}}),1)
   t.accept('a','Codex',{kind:'complete',id:'1'},2)
-  assert.equal(t.snapshot(2).title,'Generate Market Report')
+  assert.equal(t.snapshot(2).title,'Market Report')
   t.accept('a','Codex',{kind:'start',id:'2'},3)
-  assert.equal(t.snapshot(3).title,'Agent Task')
+  assert.equal(t.snapshot(30003).title,'Agent Task')
   const s=parseSignal('Claude Code',{type:'user',uuid:'c',message:{content:[{type:'text',text:'抓取信息'}]}})
-  assert.equal(s.title,'Fetch Information')
+  assert.equal(s.title,'Fetch Data')
+})
+
+test('tool activity verbs are localized by language', () => {
+  const read = { type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/repo/src/main/agentMonitor.ts' } }] } }
+  assert.equal(parseSignal('Claude Code', read).activity, 'Read agentMonitor.ts')
+  assert.equal(parseSignal('Claude Code', read, 'zh').activity, '读取 agentMonitor.ts')
+  const bash = { type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'Bash', input: { description: 'run the test suite' } }] } }
+  assert.equal(parseSignal('Claude Code', bash, 'zh').activity, 'Bash: run the test suite')
 })
 
 test('approval is explicit, frozen, deduplicated and resumes after approval', () => {
@@ -177,4 +215,68 @@ test('hook inbox delivers only fresh alerts and does not consume unrelated task 
   await m.poll();assert.equal(events.at(-1).state,'approval');assert.equal(events.at(-1).taskId,'new')
   await m.poll();assert.equal(events.length,1)
  }finally{m.stop();fs.rmSync(dir,{recursive:true,force:true})}
+})
+
+test('ai-title is trusted verbatim and never re-summarized', () => {
+  const t = new TaskTracker()
+  t.accept('a','Claude Code',{kind:'start',id:'1'},0)
+  t.accept('a','Claude Code',parseSignal('Claude Code',{type:'ai-title',aiTitle:'修改阶段任务标题显示'}),1)
+  const s = t.snapshot(2)
+  assert.equal(s.title, '修改阶段任务标题显示')
+  assert.equal(s.titleFromAi, true)
+  // A heuristic (Codex) title stays marked non-ai and is localized on demand.
+  const t2 = new TaskTracker()
+  t2.accept('a','Codex',{kind:'start',id:'1'},0)
+  t2.accept('a','Codex',parseSignal('Codex',{type:'event_msg',payload:{type:'user_message',message:'生成市场报告'}}),1)
+  assert.equal(t2.snapshot(2).titleFromAi, false)
+  assert.equal(t2.snapshot(2).title, 'Market Report')
+})
+
+test('monitor keeps completion visible during subsequent idle polls', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-idle-'))
+  const file = path.join(dir, 'session.jsonl')
+  const row = (type, id='t') => JSON.stringify({timestamp:new Date(Date.now()+100).toISOString(),type:'event_msg',payload:{type,turn_id:id}})+'\n'
+  fs.writeFileSync(file, row('task_started','t1'))
+  const events = []
+  const m = new AgentMonitor(e => events.push(e), [[dir,'Codex']], null)
+  try {
+    await m.poll(true)
+    assert.equal(events.at(-1).state, 'running')
+    fs.appendFileSync(file, row('task_complete','t1'))
+    await m.poll()
+    assert.equal(events.at(-1).state, 'completed')
+    assert.equal(m.tracker.terminal.until, Infinity)
+    await m.poll()
+    assert.equal(events.at(-1).state, 'completed')
+  } finally { m.stop(); fs.rmSync(dir, {recursive:true, force:true}) }
+})
+
+test('a task abandoned for over 15 minutes is dropped, not shown as waiting forever', () => {
+  const t = new TaskTracker()
+  t.accept('a','Claude Code',{kind:'start',id:'1'},0)
+  assert.equal(t.snapshot(2000).state,'running')
+  assert.equal(t.snapshot(100000).state,'waiting')
+  assert.equal(t.snapshot(1000000), null)
+})
+
+test('backfill does not resurrect a long-dead running task', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-stale-backfill-'))
+  const file = path.join(dir, 'session.jsonl')
+  const old = new Date(Date.now() - 3600 * 1000).toISOString()
+  const row = (type, id) => JSON.stringify({ timestamp: old, type: 'event_msg', payload: { type, turn_id: id } }) + '\n'
+  fs.writeFileSync(file, row('task_started', 'dead'))
+  const events = []
+  const m = new AgentMonitor(e => events.push(e), [[dir, 'Codex']], null)
+  try {
+    await m.poll(true)
+    assert.ok(!events.some(e => e && e.state === 'running'))
+  } finally { m.stop(); fs.rmSync(dir, {recursive:true, force:true}) }
+})
+
+test('terminal cards route Codex to its desktop app and Claude to its terminal', () => {
+  const { agentBundle } = require('../src/main/openAgent.ts')
+  assert.equal(agentBundle('Codex'), 'com.openai.codex')
+  assert.equal(agentBundle('Codex', 'vscode'), 'com.openai.codex')
+  assert.equal(agentBundle('Claude Code', 'iTerm.app'), 'com.googlecode.iterm2')
+  assert.equal(agentBundle('Claude Code', 'Cursor'), 'com.todesktop.230313mzl4w4u92')
 })

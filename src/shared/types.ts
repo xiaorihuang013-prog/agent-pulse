@@ -25,8 +25,6 @@ export interface ProgressEvent {
   noticeId?: string
   /** The agent that owns the task (real monitor only). */
   source?: 'Codex' | 'Claude Code'
-  /** >1 when multiple tasks are active (shown as a "N tasks running" hint). */
-  activeCount?: number
   /** $TERM_PROGRAM of the terminal running the agent (captured by the approval hook). */
   terminalApp?: string
   estimated?: boolean
@@ -38,6 +36,8 @@ export interface ProgressEvent {
   stageIndex: number
   /** Human-readable description of the current tool action (detail board). */
   activity?: string
+  /** True when the title came from Claude Code's own ai-title (render verbatim, skip re-summarization). */
+  titleFromAi?: boolean
   etaSeconds: number | null
   message: string
   error?: string

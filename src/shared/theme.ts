@@ -32,17 +32,6 @@ export const monochromeLimeLight: ThemeTokens = {
   approval: '#B07800'
 }
 
-// Architecture supports more themes (purple / blue / amber / custom) by adding a
-// ThemeTokens object here — the renderer consumes them purely through CSS variables.
-export const themes: Partial<Record<ThemeId, ThemeTokens>> = {
-  'monochrome-lime': monochromeLime,
-  'monochrome-lime-light': monochromeLimeLight
-}
-
-export function getTheme(id: ThemeId): ThemeTokens {
-  return themes[id] ?? monochromeLime
-}
-
 /**
  * Resolve the effective appearance. `auto` inverts the system preference so the
  * floating widget always contrasts against the desktop (dark system → light widget).

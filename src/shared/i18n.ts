@@ -54,10 +54,18 @@ const en = {
   act1: 'Gathering information…',
   act2: 'Working on the task…',
   act3: 'Reviewing results…',
+  actRead: 'Read',
+  actEdit: 'Edit',
+  actWrite: 'Write',
+  actEditNotebook: 'Edit notebook',
+  actSearch: 'Search',
+  actFetch: 'Fetch',
+  actSkill: 'Skill',
+  actWorking: 'Working',
+  actWaitingInput: 'Waiting for user input',
   msgApproval: 'Return to Agent to approve',
   msgWaiting: 'Waiting for Agent event',
-  msgError: 'Agent returned an error — check the original task',
-  tasksRunning: ' · {n} tasks running'
+  msgError: 'Agent returned an error — check the original task'
 } as const
 
 export type I18nKey = keyof typeof en
@@ -107,10 +115,18 @@ const zh: Record<I18nKey, string> = {
   act1: '收集信息…',
   act2: '执行任务…',
   act3: '检查结果…',
+  actRead: '读取',
+  actEdit: '编辑',
+  actWrite: '写入',
+  actEditNotebook: '编辑笔记本',
+  actSearch: '搜索',
+  actFetch: '抓取',
+  actSkill: '技能',
+  actWorking: '工作中',
+  actWaitingInput: '等待用户输入',
   msgApproval: '返回 Agent 进行批准',
   msgWaiting: '等待 Agent 事件',
-  msgError: 'Agent 返回错误，请查看原任务',
-  tasksRunning: ' · {n} 个任务运行中'
+  msgError: 'Agent 返回错误，请查看原任务'
 }
 
 export const STRINGS: Record<Lang, Record<I18nKey, string>> = { en, zh }

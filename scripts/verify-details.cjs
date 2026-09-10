@@ -10,7 +10,7 @@ app.whenReady().then(async()=>{
   ipcMain.handle('agent:get-progress',()=>event)
   ipcMain.handle('settings:get',()=>({soundEnabled:false,theme:'monochrome-lime',appearance:'dark',notifyEnabled:false,language:'en'}))
   let clicks=0;ipcMain.on('main:hide-to-widget',()=>clicks++)
-  const win=new BrowserWindow({width:460,height:320,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'out/preload/index.js')}})
+  const win=new BrowserWindow({width:460,height:420,show:false,webPreferences:{offscreen:true,backgroundThrottling:false,preload:path.join(root,'out/preload/index.js')}})
   await win.loadFile(path.join(root,'out/renderer/index.html'),{hash:'main'})
   await pause(250)
   const read=()=>win.webContents.executeJavaScript(`(()=>{const b=document.querySelector('.m-hide'),s=getComputedStyle(b),r=b.getBoundingClientRect();return {border:s.borderColor,outline:s.outlineStyle,shadow:s.boxShadow,x:r.x+r.width/2,y:r.y+r.height/2,state:document.querySelector('.m-state').textContent,center:getComputedStyle(document.querySelector('.mainview')).textAlign}})()`)
